@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cigar Box Design Simulator</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+      background: #141820;
+      color: #e6edf3;
+      margin: 0;
+      padding: 16px;
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+    .controls {
+      width: 360px;
+      max-width: 100%;
+      background: #1d232e;
+      padding: 16px;
+      border-radius: 10px;
+      border: 1px solid #2e3748;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    h3 { margin: 0; font-size: 16px; }
+    h4 { margin: 4px 0 0; font-size: 13px; color: #8fb4ff; border-bottom: 1px solid #2e3748; padding-bottom: 4px; }
+    .section { display: flex; flex-direction: column; gap: 8px; }
+    .param { display: flex; flex-direction: column; gap: 4px; }
+    .param label, .row-label {
+      font-size: 12px; color: #b8c4d4;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    }
+    .param input[type="range"] { width: 100%; }
+    input[type="number"], select, textarea {
+      background: #141820; color: #e6edf3; border: 1px solid #44536e;
+      border-radius: 6px; padding: 4px 6px; font-size: 13px;
+    }
+    input[type="number"] { width: 78px; text-align: right; }
+    input[type="color"] { width: 44px; height: 26px; padding: 0; border: 1px solid #44536e; background: none; }
+    textarea { width: 100%; min-height: 110px; font-family: ui-monospace, monospace; font-size: 11px; }
+    input[type="file"] { font-size: 12px; color: #b8c4d4; max-width: 100%; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    button {
+      background: #2b3548; color: #fff; border: 1px solid #44536e;
+      padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    }
+    button.active { background: #1d6fe8; border-color: #4c93ff; }
+    button.primary { background: #1d6fe8; border-color: #4c93ff; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    .note { font-size: 12px; color: #8b9ab0; line-height: 1.6; margin: 0; }
+    details { font-size: 12px; color: #b8c4d4; }
+    summary { cursor: pointer; padding: 4px 0; }
+    .stage {
+      flex: 1;
+      min-width: 320px;
+      background: #232a37;
+      border-radius: 10px;
+      border: 1px solid #2e3748;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .stage.dragover { outline: 2px dashed #4c93ff; outline-offset: -8px; }
+    svg { width: 100%; max-width: 760px; height: auto; box-shadow: 0 0 0 1px #94a3b8; }
+    #msg { min-height: 1.4em; color: #fbbf24; }
+    @media (max-width: 860px) {
+      body { flex-direction: column; padding: 8px; }
+      .controls { width: 100%; }
+      .stage { order: -1; position: sticky; top: 0; z-index: 5; width: 100%; padding: 8px; }
+      svg { max-height: 42vh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="controls">
+    <h3>Cigar Box Design Simulator</h3>
+    <p class="note">
+      ファミマ・ローソンのシール紙印刷向けの、印刷データ作成ツールです。<br />
+      画像を読み込むと、箱に貼った仕上がりを確認でき、カット線入りの印刷用PNGを保存できます。
+    </p>
+
+    <div class="section">
+      <h4>画像</h4>
+      <input id="fileArt" type="file" accept="image/*,.svg" hidden />
+      <div class="btn-row">
+        <button id="btnPickArt" class="primary">画像を選択</button>
+      </div>
+      <details>
+        <summary>SVGコードを貼り付けて読み込む</summary>
+        <textarea id="svgText" placeholder="&lt;svg ...&gt; ... &lt;/svg&gt;"></textarea>
+        <div class="btn-row"><button id="btnLoadSvgText">SVGコードを読み込む</button></div>
+      </details>
+    </div>
+
+    <div class="section">
+      <h4>表示モード</h4>
+      <select id="selMode">
+        <option value="flat">プレビュー（平面）</option>
+        <option value="solid">プレビュー（立体）</option>
+        <option value="triple">プレビュー（3箱）</option>
+        <option value="print">印刷用</option>
+      </select>
+    </div>
+
+    <div id="params"></div>
+
+    <div class="section">
+      <h4>出力</h4>
+      <div class="btn-row">
+        <button id="btnPrintPng" class="primary">印刷用PNGを保存</button>
+        <button id="btnCurrentPng">表示中の状態をPNGで保存</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="stage" id="stage">
+    <svg id="scene" viewBox="0 0 178 127" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"></svg>
+    <p id="msg" class="note"></p>
+  </div>
+
+  <script>
+    // =========================================================
+    // パラメータ定義（UI 生成・検証・保存をすべてここから行う）
+    // =========================================================
+    // ---- 固定仕様（UI には出さない）----
+    // 用紙はコンビニのシールプリント 178×127mm 固定。
+    // 下側のカット幅は 10mm で一旦固定（カット後の高さ 117mm ＝ 貼り付け先 120mm − 余白 3mm）。
+    //   検討: 7mm カット（カット後 120mm）や、用紙サイズの見直しも含めて後で再検討する。
+    // サイドテープの色（tapeColor）は固定。幅は画面で変更できる。
+    // 画像の位置調整（offX / offY：mm）は一旦非公開。優先度低。
+    //   必要になったら PARAMS に offX / offY を追加すれば、描画側はそのまま使える。
+    // 画像の縦横比（artFit）は、カット後に残る範囲（切り落とす帯を除いた部分）を基準に中央で合わせる：
+    //   asis … 画像の物理サイズのまま中央に置く（ラスター: 300dpi 相当、SVG: viewBox の 1 単位 = 1mm）。
+    //          箱を切り替えても絵の大きさは変わらない。はみ出しは切れ、足りない所は白い余白になる
+    //   fit  … 選択中の箱のカット後サイズに、縦横比を変えて引き伸ばす
+    const FIXED = {
+      sheetW: 178, sheetH: 127, boxH: 120, boxD: 60,
+      cutBottom: 10,
+      tapeColor: "#ffffff",
+      boxColor: "#cbd5e1", bgColor: "#ffffff",
+      offX: 0, offY: 0,
+      dpi: 300
+    };
+
+    // 箱ごとの仕様。cutRight は用紙の右側を切る幅（mm）。
+    //   きぞはこ：用紙(178)が貼り付け先(180)より小さいので横は切らない。
+    //   かずはこ：余白 3mm 固定 → カット後の幅 = 165 − 3 = 162mm → 178 − 162 = 16mm を右側だけ切る。
+    //     検討: 切る側（右のみ）、余白の考え方（合計 3mm）は後で見直す。
+    const BOXES = {
+      kizo: { label: "きぞはこ（180×120×60mm）", boxW: 180, cutRight: 0 },
+      kazu: { label: "かずはこ（165×120×60mm）", boxW: 165, cutRight: 16 }
+    };
+
+    const PARAMS = [
+      { g: "箱", key: "box", label: "箱のサイズ", type: "select", options: Object.entries(BOXES).map(([k, b]) => [k, b.label]), def: "kizo" },
+
+      { g: "サイドテープ", key: "sideTape", label: "サイドテープを貼る", type: "bool", def: true },
+      { key: "tapeWidth", label: "幅", unit: "mm", min: 1, max: 30, step: 0.5, def: 6 },
+
+      { g: "画像の縦横比", key: "artFit", label: "「はこに合わせる」は画像を引き伸ばします", type: "choice", def: "asis",
+        options: [["asis", "サイズそのまま"], ["fit", "はこに合わせる"]] },
+
+      { g: "出力設定", key: "printGuide", label: "印刷用にカット線を入れる", type: "bool", def: true }
+    ];
+    const MODES = ["flat", "solid", "triple", "print"];
+
+    const $ = (id) => document.getElementById(id);
+    const f = (n) => (Math.round(n * 100) / 100).toString();
+    const defaults = () => Object.fromEntries(PARAMS.map((p) => [p.key, p.def]));
+    // 固定仕様と箱サイズを展開した、描画用の値
+    const spec = () => ({
+      ...FIXED, ...state.values,
+      boxW: BOXES[state.values.box].boxW,
+      cutRight: BOXES[state.values.box].cutRight,
+      tape: state.values.sideTape ? state.values.tapeWidth : 0
+    });
+
+    const state = { values: defaults(), mode: "flat", art: null };
+
+    // =========================================================
+    // レイアウト計算（mm）
+    // =========================================================
+    function layout(v) {
+      const cb = Math.max(0, Math.min(v.cutBottom, v.sheetH - 1));
+      const cr = Math.max(0, Math.min(v.cutRight, v.sheetW - 1));
+      const kx = 0, ky = 0, kw = v.sheetW - cr, kh = v.sheetH - cb; // カット後の用紙（左上基準）
+      const zones = [], lines = [];
+      if (cb > 0) { zones.push({ x: 0, y: kh, w: v.sheetW, h: cb }); lines.push([0, kh, v.sheetW, kh]); }
+      if (cr > 0) { zones.push({ x: kw, y: 0, w: cr, h: kh }); lines.push([kw, 0, kw, v.sheetH]); }
+      // カット後の用紙を貼り付け先の中央に貼る（上下左右の隙間は均等）
+      const sx = (v.boxW - kw) / 2;
+      const sy = (v.boxH - kh) / 2;
+      return { cb, cr, kx, ky, kw, kh, zones, lines, sx, sy };
+    }
+
+    // =========================================================
+    // 描画
+    // =========================================================
+    function buildArt(v, L) {
+      const W = v.sheetW, H = v.sheetH;
+      const bg = `<rect x="0" y="0" width="${W}" height="${H}" fill="${v.bgColor}" />`;
+      const art = state.art;
+      if (!art) {
+        const fs = Math.max(3, Math.min(W, H) / 16);
+        return `<rect x="0" y="0" width="${W}" height="${H}" fill="#e5e7eb" />
+          <text x="${W / 2}" y="${f(H / 2 - fs * 0.3)}" text-anchor="middle" font-size="${f(fs)}" fill="#6b7280" font-family="sans-serif">画像を読み込んでください</text>
+          <text x="${W / 2}" y="${f(H / 2 + fs * 1.1)}" text-anchor="middle" font-size="${f(fs * 0.6)}" fill="#9ca3af" font-family="sans-serif">選択 / ドラッグ&amp;ドロップ / 貼り付け</text>`;
+      }
+      // 基準は「カット後に残る範囲」(L.kx, L.ky, L.kw, L.kh)。この中央に画像の中心を合わせる
+      let iw, ih;
+      if (v.artFit === "fit") {
+        iw = L.kw; ih = L.kh; // 縦横比を変えて残る範囲にぴったり
+      } else {
+        // 画像の物理サイズ（mm/px）は箱に依存しない。箱を切り替えても絵のサイズは変わらず、
+        // 画像が大きければはみ出し（切れる）、小さければ余白（白）ができる
+        iw = art.w * art.mmPerPx; ih = art.h * art.mmPerPx;
+      }
+      const x = L.kx + (L.kw - iw) / 2 + v.offX;
+      const y = L.ky + (L.kh - ih) / 2 + v.offY;
+      return `${bg}<image href="${art.url}" xlink:href="${art.url}" x="${f(x)}" y="${f(y)}" width="${f(iw)}" height="${f(ih)}" preserveAspectRatio="none" />`;
+    }
+
+    // 貼り付け先の面を <defs> に1回だけ定義し、<use href="#face"> で何度でも配置する（3箱表示で画像を重複させない）
+    function buildFaceDefs(v, L, art) {
+      const t = v.tape;
+      const tape = t > 0 ? `<g fill="${v.tapeColor}">
+          <rect x="0" y="0" width="${v.boxW}" height="${t}" />
+          <rect x="0" y="${f(v.boxH - t)}" width="${v.boxW}" height="${t}" />
+          <rect x="0" y="0" width="${t}" height="${v.boxH}" />
+          <rect x="${f(v.boxW - t)}" y="0" width="${t}" height="${v.boxH}" />
+        </g>` : "";
+      return `<defs>
+        <clipPath id="boxClip"><rect x="0" y="0" width="${v.boxW}" height="${v.boxH}" /></clipPath>
+        <clipPath id="keepClip"><rect x="${L.kx}" y="${L.ky}" width="${L.kw}" height="${L.kh}" /></clipPath>
+        <g id="face">
+          <g clip-path="url(#boxClip)">
+            <rect x="0" y="0" width="${v.boxW}" height="${v.boxH}" fill="${v.boxColor}" />
+            <g transform="translate(${f(L.sx - L.kx)} ${f(L.sy - L.ky)})">
+              <g clip-path="url(#keepClip)">${art}</g>
+            </g>
+            ${tape}
+          </g>
+          <rect x="0" y="0" width="${v.boxW}" height="${v.boxH}" fill="none" stroke="#94a3b8" stroke-width="0.3" />
+        </g>
+      </defs>`;
+    }
+    const useFace = (x) => `<use href="#face" xlink:href="#face" x="${f(x)}" y="0" />`;
+
+    function buildGuide(v, L) {
+      if (!v.printGuide || !L.lines.length) return "";
+      const tick = 4;
+      const hatch = L.zones.map((z) => `
+        <rect x="${z.x}" y="${z.y}" width="${z.w}" height="${z.h}" fill="#ffffff" fill-opacity="0.55" />
+        <rect x="${z.x}" y="${z.y}" width="${z.w}" height="${z.h}" fill="url(#hatch)" opacity="0.45" />`).join("");
+      const lines = L.lines.map(([x1, y1, x2, y2]) => {
+        const vertical = x1 === x2;
+        const ticks = vertical
+          ? `<line x1="${x1}" y1="0" x2="${x1}" y2="${tick}" /><line x1="${x1}" y1="${v.sheetH - tick}" x2="${x1}" y2="${v.sheetH}" />`
+          : `<line x1="0" y1="${y1}" x2="${tick}" y2="${y1}" /><line x1="${v.sheetW - tick}" y1="${y1}" x2="${v.sheetW}" y2="${y1}" />`;
+        return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#ef4444" stroke-width="0.3" stroke-dasharray="1.6,1" />
+        <g stroke="#ef4444" stroke-width="0.3">${ticks}</g>`;
+      }).join("");
+      return `
+        <defs>
+          <pattern id="hatch" width="2.4" height="2.4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="2.4" stroke="#ef4444" stroke-width="0.35" />
+          </pattern>
+        </defs>${hatch}${lines}`;
+    }
+
+    // プレビューの枠は固定（最大の箱に合わせる）。箱が小さいほど、枠の中で小さく表示される
+    const REF_W = Math.max(...Object.values(BOXES).map((b) => b.boxW));
+    const MARGIN = 6;
+    const STAGE_BG = "#2c3545";
+
+    function solidMetrics(v) {
+      const k = 0.4, ang = (30 * Math.PI) / 180;
+      return { dx: v.boxD * k * Math.cos(ang), dy: -v.boxD * k * Math.sin(ang) };
+    }
+    // 立体の箱1つ（左上 x 位置）：右側面・上面・正面
+    function solidBox(v, x, dx, dy) {
+      return `<g transform="translate(${f(x)} 0)">
+        <polygon points="${v.boxW},0 ${f(v.boxW + dx)},${f(dy)} ${f(v.boxW + dx)},${f(v.boxH + dy)} ${v.boxW},${v.boxH}" fill="#e2e8f0" stroke="#94a3b8" stroke-width="0.3" />
+        <polygon points="0,0 ${f(dx)},${f(dy)} ${f(v.boxW + dx)},${f(dy)} ${v.boxW},0" fill="#f1f5f9" stroke="#94a3b8" stroke-width="0.3" />
+        ${useFace(0)}
+      </g>`;
+    }
+
+    function render() {
+      const v = spec(), L = layout(v), svg = $("scene");
+      const art = buildArt(v, L);
+      const setView = (x, y, w, h, inner) => {
+        svg.setAttribute("width", `${f(w)}mm`);
+        svg.setAttribute("height", `${f(h)}mm`);
+        svg.setAttribute("viewBox", `${f(x)} ${f(y)} ${f(w)} ${f(h)}`);
+        svg.innerHTML = inner;
+      };
+      const bg = (x, y, w, h) => `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" fill="${STAGE_BG}" />`;
+
+      if (state.mode === "print") {
+        setView(0, 0, v.sheetW, v.sheetH, `${art}${buildGuide(v, L)}`);
+      } else if (state.mode === "flat") {
+        const w = REF_W + MARGIN * 2, h = v.boxH + MARGIN * 2;
+        setView(-MARGIN, -MARGIN, w, h, `${buildFaceDefs(v, L, art)}${bg(-MARGIN, -MARGIN, w, h)}${useFace((REF_W - v.boxW) / 2)}`);
+      } else {
+        const { dx, dy } = solidMetrics(v);
+        const n = state.mode === "triple" ? 3 : 1;
+        const gap = 0; // 箱同士はぴったりくっつける（左の箱の側面は右の箱に隠れる）
+        const refTotal = n * REF_W + (n - 1) * gap + dx;
+        const total = n * v.boxW + (n - 1) * gap + dx;
+        const x0 = (refTotal - total) / 2;
+        const w = refTotal + MARGIN * 2, h = v.boxH - dy + MARGIN * 2;
+        let boxes = "";
+        for (let i = 0; i < n; i++) boxes += solidBox(v, x0 + i * (v.boxW + gap), dx, dy);
+        setView(-MARGIN, dy - MARGIN, w, h, `${buildFaceDefs(v, L, art)}${bg(-MARGIN, dy - MARGIN, w, h)}${boxes}`);
+      }
+      $("btnPrintPng").disabled = $("btnCurrentPng").disabled = !state.art;
+    }
+
+    // =========================================================
+    // UI（PARAMS から自動生成）
+    // =========================================================
+    const inputs = {};
+    function buildParamsUi() {
+      const root = $("params");
+      let section = null;
+      for (const p of PARAMS) {
+        if (p.g) {
+          section = document.createElement("div");
+          section.className = "section";
+          section.innerHTML = `<h4>${p.g}</h4>`;
+          root.appendChild(section);
+        }
+        const wrap = document.createElement("div");
+        wrap.className = "param";
+        const set = (val) => { state.values[p.key] = val; persist(); syncUi(); render(); };
+        if (p.type === "select") {
+          wrap.innerHTML = `<label><span>${p.label}</span><select>${p.options.map(([val, name]) => `<option value="${val}">${name}</option>`).join("")}</select></label>`;
+          const el = wrap.querySelector("select");
+          el.onchange = () => set(p.numeric ? Number(el.value) : el.value);
+          inputs[p.key] = (val) => { el.value = val; };
+        } else if (p.type === "choice") {
+          wrap.innerHTML = `<div class="row-label">${p.label}</div><div class="btn-row">${p.options.map(([val, name]) => `<button data-v="${val}">${name}</button>`).join("")}</div>`;
+          const btns = [...wrap.querySelectorAll("button")];
+          btns.forEach((b) => { b.onclick = () => set(b.dataset.v); });
+          inputs[p.key] = (val) => btns.forEach((b) => b.classList.toggle("active", b.dataset.v === val));
+        } else if (p.type === "color") {
+          wrap.innerHTML = `<label><span>${p.label}</span><input type="color" /></label>`;
+          const el = wrap.querySelector("input");
+          el.oninput = () => set(el.value);
+          inputs[p.key] = (val) => { el.value = val; };
+        } else if (p.type === "bool") {
+          wrap.innerHTML = `<label><span>${p.label}</span><input type="checkbox" /></label>`;
+          const el = wrap.querySelector("input");
+          el.onchange = () => set(el.checked);
+          inputs[p.key] = (val) => { el.checked = !!val; };
+        } else {
+          wrap.innerHTML = `<label><span>${p.label}</span><span><input type="number" min="${p.min}" max="${p.max}" step="${p.step}" /> ${p.unit}</span></label>
+            <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" />`;
+          const num = wrap.querySelector('input[type="number"]'), rng = wrap.querySelector('input[type="range"]');
+          const apply = (raw) => {
+            const n = Number(raw);
+            if (!Number.isFinite(n)) return;
+            const val = Math.min(p.max, Math.max(p.min, n));
+            num.value = rng.value = val;
+            set(val);
+          };
+          num.onchange = () => apply(num.value);
+          rng.oninput = () => apply(rng.value);
+          inputs[p.key] = (val) => { num.value = rng.value = val; };
+        }
+        section.appendChild(wrap);
+      }
+    }
+    function syncUi() {
+      for (const p of PARAMS) inputs[p.key](state.values[p.key]);
+      $("selMode").value = state.mode;
+    }
+    const setMode = (m) => { state.mode = m; syncUi(); persist(); render(); };
+    $("selMode").onchange = (e) => setMode(e.target.value);
+
+    // =========================================================
+    // 設定の保存
+    // =========================================================
+    const LS_KEY = "cigar-box-sim:v1";
+    const payload = () => ({ version: 1, mode: state.mode, ...state.values });
+
+    function sanitize(obj) {
+      const out = {};
+      for (const p of PARAMS) {
+        if (!(p.key in obj)) continue;
+        const val = obj[p.key];
+        if (p.type === "select" || p.type === "choice") {
+          const hit = p.options.find(([o]) => String(o) === String(val));
+          if (hit) out[p.key] = p.numeric ? Number(hit[0]) : hit[0];
+        } else if (p.type === "color") {
+          if (/^#[0-9a-fA-F]{6}$/.test(val)) out[p.key] = val.toLowerCase();
+        } else if (p.type === "bool") {
+          if (typeof val === "boolean") out[p.key] = val;
+        } else if (Number.isFinite(Number(val))) {
+          out[p.key] = Math.min(p.max, Math.max(p.min, Number(val)));
+        }
+      }
+      return out;
+    }
+    function persist() {
+      try { localStorage.setItem(LS_KEY, JSON.stringify(payload())); } catch (e) { /* 保存不可環境では無視 */ }
+    }
+    const toast = (t) => { $("msg").textContent = t; if (t) setTimeout(() => { if ($("msg").textContent === t) $("msg").textContent = ""; }, 4000); };
+
+    // =========================================================
+    // 画像の読み込み・保存（IndexedDB）
+    // =========================================================
+    const idb = {
+      db: null,
+      async open() {
+        if (this.db) return this.db;
+        this.db = await new Promise((res, rej) => {
+          const r = indexedDB.open("cigar-box-sim", 1);
+          r.onupgradeneeded = () => r.result.createObjectStore("kv");
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        });
+        return this.db;
+      },
+      async run(mode, fn) {
+        const db = await this.open();
+        return new Promise((res, rej) => {
+          const tx = db.transaction("kv", mode);
+          const req = fn(tx.objectStore("kv"));
+          tx.oncomplete = () => res(req && req.result);
+          tx.onerror = () => rej(tx.error);
+        });
+      },
+      get: (k) => idb.run("readonly", (s) => s.get(k)),
+      set: (k, v) => idb.run("readwrite", (s) => s.put(v, k)),
+      del: (k) => idb.run("readwrite", (s) => s.delete(k))
+    };
+
+    const readDataUrl = (blob) => new Promise((res, rej) => {
+      const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob);
+    });
+    const loadImage = (src) => new Promise((res, rej) => {
+      const img = new Image(); img.onload = () => res(img); img.onerror = rej; img.src = src;
+    });
+
+    // SVG は高解像度（長辺 4200px ≒ 178mm で 600dpi）の PNG に変換して扱う（ブラウザ差を避けるため）
+    async function rasterizeSvg(text) {
+      if (!/xmlns\s*=/.test(text)) text = text.replace(/<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+      const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+      const el = doc.documentElement;
+      if (doc.querySelector("parsererror") || el.nodeName.toLowerCase() !== "svg") throw new Error("SVGとして読み込めません");
+      const vb = (el.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
+      let w, h;
+      if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) { w = vb[2]; h = vb[3]; }
+      else { w = parseFloat(el.getAttribute("width")) || 1000; h = parseFloat(el.getAttribute("height")) || 700; el.setAttribute("viewBox", `0 0 ${w} ${h}`); }
+      const k = 4200 / Math.max(w, h);
+      const W = Math.round(w * k), H = Math.round(h * k);
+      el.setAttribute("width", W);
+      el.setAttribute("height", H);
+      const blobUrl = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(el)], { type: "image/svg+xml;charset=utf-8" }));
+      try {
+        const img = await loadImage(blobUrl);
+        const c = document.createElement("canvas");
+        c.width = W; c.height = H;
+        c.getContext("2d").drawImage(img, 0, 0, W, H);
+        return { url: c.toDataURL("image/png"), w: W, h: H, mmPerPx: w / W, srcW: Math.round(w), srcH: Math.round(h) };
+      } finally { URL.revokeObjectURL(blobUrl); }
+    }
+
+    async function setArt(blob, name, save = true) {
+      try {
+        const isSvg = blob.type === "image/svg+xml" || /\.svg$/i.test(name);
+        if (isSvg) {
+          const r = await rasterizeSvg(await blob.text());
+          state.art = { ...r, name, vector: true };
+        } else {
+          const url = await readDataUrl(blob);
+          const img = await loadImage(url);
+          state.art = { url, w: img.naturalWidth, h: img.naturalHeight, mmPerPx: 25.4 / FIXED.dpi, srcW: img.naturalWidth, srcH: img.naturalHeight, name, vector: false };
+        }
+        if (save) { try { await idb.set("art", { blob, name }); } catch (e) { toast("画像のブラウザ保存に失敗しました（今回の表示は可能）"); } }
+        render();
+      } catch (e) {
+        toast("画像を読み込めませんでした：" + (e.message || "未対応の形式"));
+      }
+    }
+    const loadFile = (file) => { if (file) setArt(file, file.name || "pasted-image"); };
+
+    $("btnPickArt").onclick = () => $("fileArt").click();
+    $("fileArt").onchange = (e) => { loadFile(e.target.files[0]); e.target.value = ""; };
+    $("btnLoadSvgText").onclick = () => {
+      const t = $("svgText").value.trim();
+      if (!t) return;
+      setArt(new Blob([t], { type: "image/svg+xml" }), "pasted.svg");
+    };
+    const stage = $("stage");
+    window.addEventListener("dragover", (e) => { e.preventDefault(); stage.classList.add("dragover"); });
+    window.addEventListener("dragleave", (e) => { if (!e.relatedTarget) stage.classList.remove("dragover"); });
+    window.addEventListener("drop", (e) => { e.preventDefault(); stage.classList.remove("dragover"); loadFile(e.dataTransfer.files[0]); });
+    window.addEventListener("paste", (e) => {
+      const tag = (e.target.tagName || "").toLowerCase();
+      if (tag === "textarea" || tag === "input") return;
+      const file = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith("image/"));
+      if (file) { loadFile(file); return; }
+      const text = e.clipboardData?.getData("text") || "";
+      if (/^\s*<svg[\s>]/i.test(text)) setArt(new Blob([text], { type: "image/svg+xml" }), "pasted.svg");
+    });
+
+    // =========================================================
+    // PNG 出力（解像度メタデータ付き）
+    // =========================================================
+    const crcTable = (() => {
+      const t = new Uint32Array(256);
+      for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+      return t;
+    })();
+    const crc32 = (bytes) => { let c = 0xffffffff; for (const b of bytes) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+    function embedDpi(buf, dpi) {
+      const src = new Uint8Array(buf);
+      const ppm = Math.round(dpi / 0.0254);
+      const chunk = new Uint8Array(21);
+      const dv = new DataView(chunk.buffer);
+      dv.setUint32(0, 9);
+      chunk.set([0x70, 0x48, 0x59, 0x73], 4); // pHYs
+      dv.setUint32(8, ppm); dv.setUint32(12, ppm); chunk[16] = 1;
+      dv.setUint32(17, crc32(chunk.subarray(4, 17)));
+      const out = new Uint8Array(src.length + chunk.length);
+      out.set(src.subarray(0, 33), 0); out.set(chunk, 33); out.set(src.subarray(33), 33 + chunk.length);
+      return out;
+    }
+
+    async function savePng(mode, dpi, suffix) {
+      if (!state.art) return;
+      const prev = state.mode;
+      state.mode = mode; render();
+      const svg = $("scene"), vb = svg.viewBox.baseVal;
+      const W = Math.round((vb.width / 25.4) * dpi), H = Math.round((vb.height / 25.4) * dpi);
+      const clone = svg.cloneNode(true);
+      clone.setAttribute("width", W); clone.setAttribute("height", H);
+      const xml = new XMLSerializer().serializeToString(clone);
+      state.mode = prev; render();
+
+      const url = URL.createObjectURL(new Blob([xml], { type: "image/svg+xml;charset=utf-8" }));
+      try {
+        const img = await loadImage(url);
+        const c = document.createElement("canvas");
+        c.width = W; c.height = H;
+        c.getContext("2d").drawImage(img, 0, 0, W, H);
+        const png = await new Promise((res) => c.toBlob(res, "image/png"));
+        const bytes = embedDpi(await png.arrayBuffer(), dpi);
+        const a = document.createElement("a");
+        const dl = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+        const base = (state.art.name || "design").replace(/\.[^.]+$/, "").replace(/[^\w\-ぁ-んァ-ヶ一-龠]+/g, "_");
+        a.href = dl; a.download = `${base}_${suffix}.png`; a.click();
+        setTimeout(() => URL.revokeObjectURL(dl), 1000);
+        toast(`保存しました：${W}×${H}px（${dpi}dpi）`);
+      } catch (e) {
+        toast("PNGの生成に失敗しました");
+      } finally { URL.revokeObjectURL(url); }
+    }
+    $("btnPrintPng").onclick = () => savePng("print", FIXED.dpi, "print");
+    $("btnCurrentPng").onclick = () => savePng(state.mode, state.mode === "print" ? FIXED.dpi : 200, state.mode);
+
+    // =========================================================
+    // 起動
+    // =========================================================
+    (async function init() {
+      buildParamsUi();
+      try {
+        const saved = JSON.parse(localStorage.getItem(LS_KEY) || "null");
+        if (saved) { Object.assign(state.values, sanitize(saved)); if (MODES.includes(saved.mode)) state.mode = saved.mode; }
+      } catch (e) { /* noop */ }
+      syncUi();
+      render();
+      try {
+        const rec = await idb.get("art");
+        if (rec && rec.blob) await setArt(rec.blob, rec.name, false);
+      } catch (e) { /* noop */ }
+    })();
+  </script>
+</body>
+</html>
