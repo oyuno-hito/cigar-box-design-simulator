@@ -45,6 +45,7 @@
         <button id="btnPrintPng" class="primary">印刷用PNGを保存</button>
         <button id="btnCurrentPng">表示中の状態をPNGで保存</button>
       </div>
+      <p class="note touch-only">スマホでは共有メニューが開きます。「画像を保存」を選ぶと、写真に追加できます。</p>
     </div>
   </div>
 
@@ -56,7 +57,7 @@
   <script src="../shared/box.js"></script>
   <script>
     (function () {
-      const { FIXED, BOX_PARAMS, MODES, f, spec, placeholder, renderScene, frame, debounce, defaults, buildParamsUi, sanitize, storage, idb, ART_KEY, PREVIEW_LS_KEY, loadArt, releaseArt, exportPng, download, baseName, toaster } = CigarBox;
+      const { FIXED, BOX_PARAMS, MODES, f, spec, placeholder, renderScene, frame, debounce, defaults, buildParamsUi, sanitize, storage, idb, ART_KEY, PREVIEW_LS_KEY, loadArt, releaseArt, exportPng, saveFile, baseName, toaster } = CigarBox;
       const $ = (id) => document.getElementById(id);
       const toast = toaster($("msg"));
 
@@ -148,8 +149,8 @@
         state.mode = prev; render();
         try {
           const { blob, W, H } = await job;
-          download(blob, `${baseName(state.art.name)}_${suffix}.png`);
-          toast(`保存しました：${W}×${H}px（${dpi}dpi）`);
+          const how = await saveFile(blob, `${baseName(state.art.name)}_${suffix}.png`);
+          if (how !== "cancelled") toast(`${how === "shared" ? "共有しました" : "保存しました"}：${W}×${H}px（${dpi}dpi）`);
         } catch (e) {
           toast("PNGの生成に失敗しました");
         }

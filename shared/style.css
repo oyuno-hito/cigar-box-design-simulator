@@ -67,7 +67,9 @@ summary { cursor: pointer; padding: 4px 0; }
 }
 .stage.dragover { outline: 2px dashed #4c93ff; outline-offset: -8px; }
 .stage svg { width: 100%; max-width: 760px; height: auto; box-shadow: 0 0 0 1px #94a3b8; }
-#msg { min-height: 1.4em; color: #fbbf24; }
+#msg, #cbx-msg { min-height: 1.4em; color: #fbbf24; }
+.touch-only { display: none; }
+@media (pointer: coarse) { .touch-only { display: block; } }
 
 /* 入口ページ */
 .home { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }

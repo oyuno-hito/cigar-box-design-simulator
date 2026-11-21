@@ -45,7 +45,7 @@
     const { PARAMS, draw } = opts || {};
     if (!Array.isArray(PARAMS) || typeof draw !== "function") throw new Error("mountDraft には PARAMS（配列）と draw（関数）が必要です");
     ensureStyle();
-    const { BOX_PARAMS, MODES, spec, placeholder, renderScene, frame, debounce, defaults, buildParamsUi, sanitize, storage, idb, download, toaster, esc, f, ART_KEY, PREVIEW_LS_KEY } = CB;
+    const { BOX_PARAMS, MODES, spec, placeholder, renderScene, frame, debounce, defaults, buildParamsUi, sanitize, storage, idb, saveFile, svgToPng, toaster, esc, f, ART_KEY, PREVIEW_LS_KEY } = CB;
 
     // ---- 画面（固定部分） ----
     if (!document.querySelector('meta[name="viewport"]')) document.head.insertAdjacentHTML("beforeend", '<meta name="viewport" content="width=device-width, initial-scale=1" />');
@@ -65,10 +65,12 @@
           <h4>出力</h4>
           <div class="btn-row">
             <button id="cbx-save">SVGを保存</button>
+            <button id="cbx-png">PNGで保存</button>
             <button id="cbx-copy">SVGをコピー</button>
             <button id="cbx-open" class="primary">仕上げページを開く${ICON_EXTERNAL}</button>
           </div>
           <p class="note">「SVGを保存」「SVGをコピー」は、AIに渡して手直しを頼むときにも使えます。「仕上げページを開く」は、別のウィンドウで開きます。</p>
+          <p class="note touch-only">スマホでは共有メニューが開きます。写真に入れたいときは「PNGで保存」を選び、メニューの「画像を保存」を押してください（SVG は写真に保存できません）。</p>
         </div>
       </div>
       <div class="stage">
@@ -111,7 +113,7 @@
       }
       renderScene($("scene"), v, state.mode, art);
       $("cbx-msg").textContent = msg;
-      $("cbx-open").disabled = $("cbx-save").disabled = $("cbx-copy").disabled = !ok;
+      $("cbx-open").disabled = $("cbx-save").disabled = $("cbx-png").disabled = $("cbx-copy").disabled = !ok;
     }
 
     // ---- UI ----
@@ -124,9 +126,15 @@
 
     // ---- 出力 ----
     const currentBlob = () => new Blob([`<?xml version="1.0" encoding="UTF-8"?>\n${buildSvg()}`], { type: "image/svg+xml" });
-    $("cbx-save").onclick = () => {
-      try { download(currentBlob(), `design_${state.fixed.box}.svg`); }
+    const saved_ = (how) => { if (how !== "cancelled") toast(how === "shared" ? "共有しました" : "保存しました"); };
+    $("cbx-save").onclick = async () => {
+      try { saved_(await saveFile(currentBlob(), `design_${state.fixed.box}.svg`)); }
       catch (e) { toast("SVGを保存できませんでした：" + e.message); }
+    };
+    // 300dpi の PNG（箱の面と同寸）。写真アプリに保存でき、仕上げページでは「画像を選択」で読み込める
+    $("cbx-png").onclick = async () => {
+      try { saved_(await saveFile(await svgToPng(buildSvg()), `design_${state.fixed.box}.png`)); }
+      catch (e) { toast("PNGを保存できませんでした：" + e.message); }
     };
     async function copyText(text) {
       try { await navigator.clipboard.writeText(text); return true; }

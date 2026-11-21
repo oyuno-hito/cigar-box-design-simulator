@@ -390,6 +390,12 @@
     } finally { URL.revokeObjectURL(svgUrl); }
   }
 
+  // SVG（箱の面と同寸・1 単位 = 1mm）を、300dpi の PNG にする。写真アプリへの保存や、印刷用の受け渡し用
+  async function svgToPng(text) {
+    const { blob } = await rasterizeSvg(text);
+    return new Blob([embedDpi(await blob.arrayBuffer(), FIXED.dpi)], { type: "image/png" });
+  }
+
   // 画像（PNG / JPEG）か SVG を読み込む。mmPerPx はデザインの物理サイズ（ラスターは 300dpi 相当、SVG は 1 単位 = 1mm）
   // 戻り値の url は画面表示用（blob URL）。使い終わったら releaseArt で解放する
   async function loadArt(blob, name) {
@@ -473,6 +479,27 @@
     a.href = url; a.download = filename; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  // スマホ（タッチ操作の端末）か。ここでは「共有メニューを使うか」の判定にだけ使う
+  const isTouch = () => !!(global.matchMedia && global.matchMedia("(pointer: coarse)").matches);
+
+  // ファイルを保存する。スマホでは共有メニューを開く。
+  //   iOS の「ダウンロード」は「ファイル」アプリにしか保存できない。共有メニューなら、PNG / JPEG を「画像を保存」で写真に追加できる
+  //   （SVG は写真アプリに保存できない。写真に入れたいときは PNG にする）
+  // 戻り値："shared"（共有した） / "cancelled"（共有メニューを閉じた） / "downloaded"（ダウンロードした）
+  async function saveFile(blob, filename) {
+    if (isTouch() && navigator.canShare && navigator.share) {
+      const file = new File([blob], filename, { type: blob.type });
+      if (navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file] }); return "shared"; }
+        catch (e) {
+          if (e && e.name === "AbortError") return "cancelled";
+          // 時間がかかって「ボタンを押した直後」と見なされなくなった場合などは、ダウンロードに切り替える
+        }
+      }
+    }
+    download(blob, filename);
+    return "downloaded";
+  }
   const baseName = (name) => (name || "design").replace(/\.[^.]+$/, "").replace(/[^\w\-ぁ-んァ-ヶ一-龠]+/g, "_");
 
   function toaster(el) {
@@ -481,7 +508,7 @@
 
   global.CigarBox = {
     FIXED, BOXES, BOX_PARAMS, MODES,
-    f, esc, spec, layout, placeholder, renderScene, frame, debounce, releaseArt,
+    f, esc, spec, layout, placeholder, renderScene, frame, debounce, releaseArt, saveFile, svgToPng, isTouch,
     defaults, buildParamsUi, sanitize, storage,
     idb, ART_KEY, PREVIEW_LS_KEY,
     parseSvg, loadArt,
