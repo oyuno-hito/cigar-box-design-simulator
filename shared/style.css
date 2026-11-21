@@ -1,0 +1,87 @@
+/* 共通スタイル（preview / draft / 入口ページで共有）。AI はこのファイルを編集しない */
+* { box-sizing: border-box; }
+body {
+  font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+  background: #141820;
+  color: #e6edf3;
+  margin: 0;
+  padding: 16px;
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+a { color: #8fb4ff; }
+.controls {
+  width: 360px;
+  max-width: 100%;
+  background: #1d232e;
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid #2e3748;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+h3 { margin: 0; font-size: 16px; }
+h4 { margin: 4px 0 0; font-size: 13px; color: #8fb4ff; border-bottom: 1px solid #2e3748; padding-bottom: 4px; }
+.crumb { font-size: 12px; color: #8b9ab0; }
+.section { display: flex; flex-direction: column; gap: 8px; }
+.param { display: flex; flex-direction: column; gap: 4px; }
+.param label, .row-label {
+  font-size: 12px; color: #b8c4d4;
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+}
+.param input[type="range"] { width: 100%; }
+input[type="number"], select, textarea {
+  background: #141820; color: #e6edf3; border: 1px solid #44536e;
+  border-radius: 6px; padding: 4px 6px; font-size: 13px;
+}
+input[type="number"] { width: 78px; text-align: right; }
+input[type="color"] { width: 44px; height: 26px; padding: 0; border: 1px solid #44536e; background: none; }
+textarea { width: 100%; min-height: 110px; font-family: ui-monospace, monospace; font-size: 11px; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+button {
+  background: #2b3548; color: #fff; border: 1px solid #44536e;
+  padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+button.active { background: #1d6fe8; border-color: #4c93ff; }
+button.primary { background: #1d6fe8; border-color: #4c93ff; }
+button .icon { width: 13px; height: 13px; margin-left: 5px; vertical-align: -2px; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+.note { font-size: 12px; color: #8b9ab0; line-height: 1.6; margin: 0; }
+details { font-size: 12px; color: #b8c4d4; }
+summary { cursor: pointer; padding: 4px 0; }
+.stage {
+  flex: 1;
+  min-width: 320px;
+  background: #232a37;
+  border-radius: 10px;
+  border: 1px solid #2e3748;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.stage.dragover { outline: 2px dashed #4c93ff; outline-offset: -8px; }
+.stage svg { width: 100%; max-width: 760px; height: auto; box-shadow: 0 0 0 1px #94a3b8; }
+#msg { min-height: 1.4em; color: #fbbf24; }
+
+/* 入口ページ */
+.home { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.card {
+  display: flex; flex-direction: column; gap: 8px;
+  background: #1d232e; border: 1px solid #2e3748; border-radius: 10px; padding: 16px;
+  color: inherit; text-decoration: none;
+}
+.card:hover { border-color: #4c93ff; }
+.card h3 { color: #8fb4ff; }
+
+@media (max-width: 860px) {
+  body { flex-direction: column; padding: 8px; }
+  .controls { width: 100%; }
+  .stage { order: -1; position: sticky; top: 0; z-index: 5; width: 100%; padding: 8px; }
+  .stage svg { max-height: 42vh; }
+}

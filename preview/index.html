@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>仕上げ・確認 | Cigar Box Design Simulator</title>
+  <link rel="stylesheet" href="../shared/style.css" />
+</head>
+<body>
+  <!--
+    最終調整・確認ページ。決定論的なコードのみで、AI による編集の対象外。
+    デザイン微調整（テンプレート）は ../draft/ に分けている。
+  -->
+  <div class="controls">
+    <div class="crumb"><a href="../">トップ</a> / 仕上げ・確認</div>
+    <h3>Cigar Box Design Simulator</h3>
+    <p class="note">
+      ファミマ・ローソンのシール紙印刷向けの、印刷データ作成ツールです。<br />
+      画像を読み込むと、箱に貼った仕上がりを確認でき、カット線入りの印刷用PNGを保存できます。
+    </p>
+
+    <div class="section">
+      <h4>画像</h4>
+      <input id="fileArt" type="file" accept="image/*,.svg" hidden />
+      <div class="btn-row">
+        <button id="btnPickArt" class="primary">画像を選択</button>
+      </div>
+      <details>
+        <summary>SVGコードを貼り付けて読み込む</summary>
+        <textarea id="svgText" placeholder="&lt;svg ...&gt; ... &lt;/svg&gt;"></textarea>
+        <div class="btn-row"><button id="btnLoadSvgText">SVGコードを読み込む</button></div>
+      </details>
+    </div>
+
+    <div class="section">
+      <h4>表示モード</h4>
+      <select id="selMode"></select>
+    </div>
+
+    <div id="params"></div>
+
+    <div class="section">
+      <h4>出力</h4>
+      <div class="btn-row">
+        <button id="btnPrintPng" class="primary">印刷用PNGを保存</button>
+        <button id="btnCurrentPng">表示中の状態をPNGで保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage" id="stage">
+    <svg id="scene" viewBox="0 0 178 127" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"></svg>
+    <p id="msg" class="note"></p>
+  </div>
+
+  <script src="../shared/box.js"></script>
+  <script>
+    (function () {
+      const { FIXED, BOX_PARAMS, MODES, f, spec, placeholder, renderScene, defaults, buildParamsUi, sanitize, storage, idb, ART_KEY, PREVIEW_LS_KEY, loadArt, exportPng, download, baseName, toaster } = CigarBox;
+      const $ = (id) => document.getElementById(id);
+      const toast = toaster($("msg"));
+
+      // 画像の縦横比（artFit）。デザインは箱の面と同寸で作る前提で、箱の面の中央に合わせる：
+      //   asis … 画像の物理サイズのまま置く（ラスター: 300dpi 相当、SVG: viewBox の 1 単位 = 1mm）。
+      //          箱を切り替えても絵の大きさは変わらない。はみ出しは切れ、足りない所は白い余白になる
+      //   fit  … 選択中の箱の面のサイズに、縦横比を変えて引き伸ばす
+      // 画像の位置調整（offX / offY：mm）は一旦非公開。優先度低。
+      const PARAMS = [
+        ...BOX_PARAMS,
+        { g: "画像の縦横比", key: "artFit", label: "「はこに合わせる」は画像を引き伸ばします", type: "choice", def: "asis",
+          options: [["asis", "サイズそのまま"], ["fit", "はこに合わせる"]] },
+        { g: "出力設定", key: "printGuide", label: "印刷用にカット線を入れる", type: "bool", def: true }
+      ];
+
+      const state = { values: defaults(PARAMS), mode: "flat", art: null };
+      const persist = () => storage.save(PREVIEW_LS_KEY, { version: 1, mode: state.mode, ...state.values });
+
+      function artMarkup(v) {
+        const art = state.art;
+        if (!art) return placeholder(v, "画像を読み込んでください", "選択 / ドラッグ&ドロップ / 貼り付け");
+        let iw, ih;
+        if (v.artFit === "fit") { iw = v.boxW; ih = v.boxH; }
+        else { iw = art.w * art.mmPerPx; ih = art.h * art.mmPerPx; }
+        const x = (v.boxW - iw) / 2, y = (v.boxH - ih) / 2;
+        return `<image href="${art.url}" xlink:href="${art.url}" x="${f(x)}" y="${f(y)}" width="${f(iw)}" height="${f(ih)}" preserveAspectRatio="none" />`;
+      }
+
+      function render() {
+        const v = spec(state.values);
+        renderScene($("scene"), v, state.mode, artMarkup(v));
+        $("btnPrintPng").disabled = $("btnCurrentPng").disabled = !state.art;
+      }
+
+      // ---- UI ----
+      const sync = buildParamsUi($("params"), PARAMS, state.values, () => { persist(); render(); });
+      $("selMode").innerHTML = Object.entries(MODES).map(([k, label]) => `<option value="${k}">${label}</option>`).join("");
+      $("selMode").onchange = (e) => { state.mode = e.target.value; persist(); render(); };
+
+      // ---- 画像 ----
+      async function setArt(blob, name, save = true) {
+        try {
+          state.art = await loadArt(blob, name);
+          if (save) { try { await idb.set(ART_KEY, { blob, name }); } catch (e) { toast("画像のブラウザ保存に失敗しました（今回の表示は可能）"); } }
+          render();
+        } catch (e) {
+          toast("画像を読み込めませんでした：" + (e.message || "未対応の形式"));
+        }
+      }
+      const loadFile = (file) => { if (file) setArt(file, file.name || "pasted-image"); };
+
+      $("btnPickArt").onclick = () => $("fileArt").click();
+      $("fileArt").onchange = (e) => { loadFile(e.target.files[0]); e.target.value = ""; };
+      $("btnLoadSvgText").onclick = () => {
+        const t = $("svgText").value.trim();
+        if (t) setArt(new Blob([t], { type: "image/svg+xml" }), "pasted.svg");
+      };
+      const stage = $("stage");
+      window.addEventListener("dragover", (e) => { e.preventDefault(); stage.classList.add("dragover"); });
+      window.addEventListener("dragleave", (e) => { if (!e.relatedTarget) stage.classList.remove("dragover"); });
+      window.addEventListener("drop", (e) => { e.preventDefault(); stage.classList.remove("dragover"); loadFile(e.dataTransfer.files[0]); });
+      window.addEventListener("paste", (e) => {
+        const tag = (e.target.tagName || "").toLowerCase();
+        if (tag === "textarea" || tag === "input") return;
+        const file = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith("image/"));
+        if (file) { loadFile(file); return; }
+        const text = e.clipboardData?.getData("text") || "";
+        if (/^\s*<svg[\s>]/i.test(text)) setArt(new Blob([text], { type: "image/svg+xml" }), "pasted.svg");
+      });
+
+      // ---- 出力 ----
+      async function savePng(mode, dpi, suffix) {
+        if (!state.art) return;
+        const prev = state.mode;
+        state.mode = mode; render();
+        const job = exportPng($("scene"), dpi);
+        state.mode = prev; render();
+        try {
+          const { blob, W, H } = await job;
+          download(blob, `${baseName(state.art.name)}_${suffix}.png`);
+          toast(`保存しました：${W}×${H}px（${dpi}dpi）`);
+        } catch (e) {
+          toast("PNGの生成に失敗しました");
+        }
+      }
+      $("btnPrintPng").onclick = () => savePng("print", FIXED.dpi, "print");
+      $("btnCurrentPng").onclick = () => savePng(state.mode, state.mode === "print" ? FIXED.dpi : 200, state.mode);
+
+      // ---- 起動 ----
+      (async function init() {
+        const saved = storage.load(PREVIEW_LS_KEY);
+        if (saved) { Object.assign(state.values, sanitize(PARAMS, saved)); if (saved.mode in MODES) state.mode = saved.mode; }
+        sync();
+        $("selMode").value = state.mode;
+        render();
+        try {
+          const rec = await idb.get(ART_KEY);
+          if (rec && rec.blob) await setArt(rec.blob, rec.name, false);
+        } catch (e) { /* noop */ }
+      })();
+    })();
+  </script>
+</body>
+</html>
