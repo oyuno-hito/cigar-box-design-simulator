@@ -10,7 +10,8 @@
        AI-SLOT:BEGIN
        このページは「AI に調整ページを作ってもらうためのテンプレート」です。
        AI がこのページをコピーして作り替えるときは、AI-SLOT:BEGIN 〜 AI-SLOT:END の中（PARAMS と draw）だけを書き換えます。
-       それ以外（表示モード・箱の切り替え・サイドテープ・出力ボタン）は変えません。
+       画面の固定部分（表示モード・箱の切り替え・サイドテープ・プレビュー・出力ボタン）は shared/draft-app.js が作ります。
+       自分で作り直さず、CigarBox.mountDraft({ PARAMS, draw }) を呼んでください。
        ここは、このサイトの利用者がコードを貼り付ける場所ではありません（このページはコードの読み込みをしません）。
 
        契約:
@@ -81,92 +82,36 @@
   <!-- AI-SLOT:END ===================================================== -->
 </head>
 <body>
-  <!-- ここから下は固定部分 -->
-  <div class="controls">
-    <div class="crumb"><a href="../">トップ</a> / デザイン微調整（テンプレート）</div>
-    <h3>デザイン微調整（テンプレート）</h3>
-    <p class="note">このページの依頼文をコピーしてAIに渡すと、参考画像をもとにしたデザイン微調整ツールを自作できます。</p>
-
-    <div class="section">
-      <h4>AIに依頼する</h4>
-      <div class="param">
-        <label for="briefItems"><span>調整したい項目</span></label>
-        <textarea id="briefItems" rows="2" style="min-height:44px" placeholder="例：形の数、間隔、色、回転、背景色"></textarea>
-      </div>
-      <div class="btn-row"><button id="btnCopyPrompt" class="primary">AIへの依頼文をコピー</button></div>
-      <p class="note">参考画像と一緒にAIに送ってください。AIがこのページを元に、あなた用の調整ツールを作ります。</p>
-    </div>
-
-    <div class="section">
-      <h4>表示モード</h4>
-      <select id="selMode"></select>
-    </div>
-
-    <div id="fixedParams"></div>
-    <div id="designParams"></div>
-
-    <div class="section">
-      <h4>出力</h4>
-      <div class="btn-row">
-        <button id="btnSaveSvg">SVGを保存</button>
-        <button id="btnToPreview" class="primary">仕上げページを開く<svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-label="別のウィンドウで開きます" role="img"><path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M6.5 3.5H3.5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" /></svg></button>
-      </div>
-      <p class="note">「SVGを保存」は、AIに渡して手直しを頼むときにも使えます。「仕上げページを開く」は、このデザインを持って別のウィンドウで開きます。</p>
-    </div>
-  </div>
-
-  <div class="stage">
-    <svg id="scene" viewBox="0 0 192 132" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"></svg>
-    <p id="msg" class="note"></p>
-  </div>
-
   <script src="../shared/box.js"></script>
+  <script src="../shared/draft-app.js"></script>
   <script>
     (function () {
-      const { BOX_PARAMS, BOXES, MODES, spec, placeholder, renderScene, defaults, buildParamsUi, sanitize, storage, idb, download, toaster, f, ART_KEY, PREVIEW_LS_KEY } = CigarBox;
+      const { storage } = CigarBox;
+      const ITEMS_KEY = "cigar-box-draft:items";
+
+      // 画面の固定部分（表示モード・箱・サイドテープ・プレビュー・出力ボタン）は shared/draft-app.js が作る
+      const extra = document.createElement("div");
+      extra.className = "section";
+      extra.innerHTML = `
+        <h4>AIに依頼する</h4>
+        <div class="param">
+          <label for="briefItems"><span>調整したい項目</span></label>
+          <textarea id="briefItems" rows="2" style="min-height:44px" placeholder="例：形の数、間隔、色、回転、背景色"></textarea>
+        </div>
+        <div class="btn-row"><button id="btnCopyPrompt" class="primary">AIへの依頼文をコピー</button></div>
+        <p class="note">参考画像と一緒にAIに送ってください。AIがこのページを元に、あなた用の調整ツールを作ります。</p>`;
+
+      const app = CigarBox.mountDraft({
+        crumb: '<a href="../">トップ</a> / デザイン微調整（テンプレート）',
+        title: "デザイン微調整（テンプレート）",
+        note: "このページの依頼文をコピーしてAIに渡すと、参考画像をもとにしたデザイン微調整ツールを自作できます。",
+        extra, PARAMS, draw
+      });
       const $ = (id) => document.getElementById(id);
-      const toast = toaster($("msg"));
-      const LS_KEY = "cigar-box-draft:v3";
-      const DRAFT_MODES = ["flat", "solid", "triple"];
 
-      const state = { fixed: defaults(BOX_PARAMS), mode: "flat", values: defaults(PARAMS), items: "" };
-      const persist = () => storage.save(LS_KEY, { version: 3, mode: state.mode, fixed: state.fixed, values: state.values, items: state.items });
-      const boxOf = () => { const v = spec(state.fixed); return { v, box: { w: v.boxW, h: v.boxH, key: v.box } }; };
-
-      // draw の結果を、箱の面と同寸（1 単位 = 1mm）の SVG にする
-      function buildSvg() {
-        const { box } = boxOf();
-        const inner = draw(box, { ...state.values });
-        if (typeof inner !== "string") throw new Error("draw は SVG の中身（文字列）を返してください");
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${f(box.w)} ${f(box.h)}" width="${f(box.w)}mm" height="${f(box.h)}mm">${inner}</svg>`;
-        const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
-        if (doc.querySelector("parsererror")) throw new Error("draw の結果が SVG として不正です");
-        return svg;
-      }
-
-      function render() {
-        const { v, box } = boxOf();
-        let art, ok = false, msg = "";
-        try {
-          const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(buildSvg());
-          art = `<image href="${url}" xlink:href="${url}" x="0" y="0" width="${f(box.w)}" height="${f(box.h)}" />`;
-          ok = true;
-        } catch (e) {
-          art = placeholder(v, "デザインを描けませんでした", "メッセージを確認してください");
-          msg = e.message;
-        }
-        renderScene($("scene"), v, state.mode, art);
-        $("msg").textContent = msg;
-        $("btnToPreview").disabled = $("btnSaveSvg").disabled = !ok;
-      }
-
-      // ---- UI ----
-      const onChange = () => { persist(); render(); };
-      const syncFixed = buildParamsUi($("fixedParams"), BOX_PARAMS, state.fixed, onChange);
-      const syncDesign = buildParamsUi($("designParams"), PARAMS, state.values, onChange);
-      $("selMode").innerHTML = DRAFT_MODES.map((k) => `<option value="${k}">${MODES[k]}</option>`).join("");
-      $("selMode").onchange = (e) => { state.mode = e.target.value; persist(); render(); };
-      $("briefItems").oninput = (e) => { state.items = e.target.value; persist(); };
+      let items = String((storage.load(ITEMS_KEY) || {}).items || "");
+      $("briefItems").value = items;
+      $("briefItems").oninput = (e) => { items = e.target.value; storage.save(ITEMS_KEY, { items }); };
 
       // ---- 依頼文 ----
       const slotSource = (() => {
@@ -184,28 +129,47 @@
           guide: new URL("../docs/ai-guide.md", page).href,
           examples: new URL("../examples/", page).href
         };
-        const items = state.items.trim() || "（なし。または、動かしたい項目を書く）";
+        const brief = items.trim() || "（なし。または、動かしたい項目を書く）";
         return `添付した画像のデザインを、ファミマ・ローソンのシール紙に印刷してシガーボックスに貼るシールにします。
 そのデザインを SVG で再現して、項目を動かして調整できる「調整ページ」を作ってください。
 画像は雰囲気・色・構図の参考です。トレースや画像の埋め込みはせず、SVG の図形で作ってください。
 
 # 調整したい項目（画面で動かせるようにしたい）
-${items}
+${brief}
 
-# 調整ページ
-テンプレートのページがあります：${urls.page}（HTML を読めます）
-- テンプレートを読めるなら、それをコピーして AI-SLOT:BEGIN 〜 AI-SLOT:END の中（PARAMS と draw）だけを書き換える。それ以外は変えない
-  - 共通部分（${urls.shared} の box.js と style.css）は、公開 URL から <script src> と <link> で読み込んでよい。オフラインで使うなら中身をページにコピーする
-- テンプレートを読めないなら、次を満たす HTML（ブラウザで開くだけで動く 1 ファイル）を作る
-  - 調整項目をスライダーや色選択などで動かせる
-  - 箱の面と同じ大きさでプレビューする。箱は きぞはこ 180×120mm / かずはこ 165×120mm を切り替えられる
-  - ボタン「SVGを保存」と「仕上げページを開く」を、別々に置く
-- 「仕上げページを開く」は、${urls.preview} を新しいウィンドウで開く（<a target="_blank" rel="noopener">。別のウィンドウで開くとわかるアイコンを付ける）
-  - 仕上げページは別のサイトなので、データは渡せない。保存した SVG を、仕上げページにドラッグ&ドロップ（またはコードの貼り付け）で読み込む
-  - あれば「SVGをコピー」（SVG のコードをクリップボードへ）も置く。スマホでは貼り付けの方が楽
-- ページの使い方を、画面上に 2〜3 行で書く
+# 調整ページ（ブラウザで開くだけで動く HTML 1 ファイル）
+画面の固定部分（表示モード・箱の切り替え・サイドテープ・プレビュー・出力ボタン）は、共通スクリプトが作ります。
+自分で作り直さず、下の骨組みの PARAMS と draw だけを書いてください。
+- 箱の切り替え、「サイドテープを貼る」（色・幅つき。4 辺に貼る）、プレビュー（スマホでは画面上部に固定）、「SVGを保存」「SVGをコピー」「仕上げページを開く」は、共通スクリプトが用意する。同じものを自作しない
+- title と note は書き換えてよい。note には、ページの使い方を 2〜3 行で書く
+- 共通スクリプトは公開 URL から読み込む。外部スクリプトを読み込めない環境では、${urls.shared} の box.js・draft-app.js・style.css の中身を取得して、それぞれ <script> と <style> としてページに貼る
+- 共通スクリプトも取得できないときだけ、同じ機能を自作する（箱は きぞはこ 180×120mm / かずはこ 165×120mm、サイドテープは 4 辺・色と幅を変えられる、プレビューはスマホで上部に固定、「SVGを保存」と「仕上げページを開く」を別々のボタンにする）
 
-# AI-SLOT の書き方
+骨組み（PARAMS と draw を、画像のデザインに合わせて書き換える。見本は同じ形を規則的に並べるデザイン）：
+\`\`\`html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>デザイン微調整</title>
+  <link rel="stylesheet" href="${urls.shared}style.css" />
+</head>
+<body>
+  <script src="${urls.shared}box.js"><\/script>
+  <script src="${urls.shared}draft-app.js"><\/script>
+  <script>
+${slotSource.replace(/^/gm, "    ")}
+
+    CigarBox.mountDraft({ title: "デザイン微調整", note: "ここにページの使い方を 2〜3 行で書く", PARAMS, draw });
+  <\/script>
+</body>
+</html>
+\`\`\`
+
+「仕上げページを開く」は ${urls.preview} を別のウィンドウで開きます。別のサイトなので、データは直接渡せません。共通スクリプトが SVG をコピーしてから開くので、仕上げページに貼り付けて読み込みます。
+
+# PARAMS と draw の書き方
 PARAMS … 調整項目の配列。要素は次のいずれか（g を付けると、その項目から見出しが始まる）
   { g: "見出し", key: "r", label: "円の半径", type: "number", unit: "mm", min: 5, max: 60, step: 0.5, def: 40 }
   { key: "color", label: "色", type: "color", def: "#ef4444" }（def は #rrggbb）
@@ -215,11 +179,6 @@ draw(box, p) … デザインの SVG の中身（<svg> の中に入る要素）�
   box = { w: 180 または 165, h: 120, key: "kizo" または "kazu" }、p = PARAMS の現在値
   座標は箱の面（左上が 0,0、右下が box.w, box.h）。1 単位 = 1mm。<svg> 要素そのものは返さない
 ループ・三角関数・乱数など、JavaScript で自由に生成してよい（参考：${urls.examples} ）
-
-見本：
-\`\`\`js
-${slotSource}
-\`\`\`
 
 # 保存する SVG のルール
 - 箱の面と同じ大きさ。きぞはこは <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 120" width="180mm" height="120mm">、かずはこは 165×120
@@ -244,42 +203,8 @@ ${slotSource}
         }
       }
       $("btnCopyPrompt").onclick = async () => {
-        toast((await copyText(buildPrompt())) ? "依頼文をコピーしました。参考画像と一緒にAIに送ってください" : "コピーできませんでした");
+        app.toast((await copyText(buildPrompt())) ? "依頼文をコピーしました。参考画像と一緒にAIに送ってください" : "コピーできませんでした");
       };
-
-      // ---- 出力 ----
-      const currentBlob = () => new Blob([`<?xml version="1.0" encoding="UTF-8"?>\n${buildSvg()}`], { type: "image/svg+xml" });
-      $("btnSaveSvg").onclick = () => {
-        try { download(currentBlob(), `design_${state.fixed.box}.svg`); }
-        catch (e) { toast("SVGを保存できませんでした：" + e.message); }
-      };
-      $("btnToPreview").onclick = async () => {
-        const win = window.open("", "_blank"); // クリック直後に開く（ポップアップのブロックを避ける）
-        try {
-          const box = state.fixed.box;
-          await idb.set(ART_KEY, { blob: currentBlob(), name: `design_${box}.svg` });
-          const saved = storage.load(PREVIEW_LS_KEY) || { version: 1 };
-          storage.save(PREVIEW_LS_KEY, { ...saved, box, sideTape: state.fixed.sideTape, tapeWidth: state.fixed.tapeWidth });
-          const url = new URL("../preview/", location.href).href;
-          if (win) win.location.href = url; else location.href = url;
-        } catch (e) {
-          if (win) win.close();
-          toast("仕上げページを開けませんでした：" + e.message);
-        }
-      };
-
-      // ---- 起動 ----
-      const saved = storage.load(LS_KEY);
-      if (saved) {
-        Object.assign(state.fixed, sanitize(BOX_PARAMS, saved.fixed));
-        Object.assign(state.values, sanitize(PARAMS, saved.values));
-        if (DRAFT_MODES.includes(saved.mode)) state.mode = saved.mode;
-        state.items = String(saved.items || "");
-        $("briefItems").value = state.items;
-      }
-      syncFixed(); syncDesign();
-      $("selMode").value = state.mode;
-      render();
     })();
   </script>
 </body>

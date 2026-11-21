@@ -33,6 +33,7 @@ h4 { margin: 4px 0 0; font-size: 13px; color: #8fb4ff; border-bottom: 1px solid 
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
 }
 .param input[type="range"] { width: 100%; }
+.ctl { display: inline-flex; align-items: center; gap: 10px; }
 input[type="number"], select, textarea {
   background: #141820; color: #e6edf3; border: 1px solid #44536e;
   border-radius: 6px; padding: 4px 6px; font-size: 13px;
@@ -82,6 +83,12 @@ summary { cursor: pointer; padding: 4px 0; }
 @media (max-width: 860px) {
   body { flex-direction: column; padding: 8px; }
   .controls { width: 100%; }
-  .stage { order: -1; position: sticky; top: 0; z-index: 5; width: 100%; padding: 8px; }
-  .stage svg { max-height: 42vh; }
+  .stage {
+    order: -1; position: sticky; top: 0; z-index: 5; width: 100%; padding: 8px;
+    /* 固定表示の領域を専用レイヤーに分け、スクロールや再描画でチラつくのを防ぐ */
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+  }
+  /* 高さを固定し、表示モードや箱で縦横比が変わっても領域の大きさを変えない（下のコントロールが動かない） */
+  .stage svg { height: 36vh; height: 36svh; max-width: none; box-shadow: none; }
 }

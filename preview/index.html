@@ -56,7 +56,7 @@
   <script src="../shared/box.js"></script>
   <script>
     (function () {
-      const { FIXED, BOX_PARAMS, MODES, f, spec, placeholder, renderScene, defaults, buildParamsUi, sanitize, storage, idb, ART_KEY, PREVIEW_LS_KEY, loadArt, exportPng, download, baseName, toaster } = CigarBox;
+      const { FIXED, BOX_PARAMS, MODES, f, spec, placeholder, renderScene, frame, debounce, defaults, buildParamsUi, sanitize, storage, idb, ART_KEY, PREVIEW_LS_KEY, loadArt, releaseArt, exportPng, download, baseName, toaster } = CigarBox;
       const $ = (id) => document.getElementById(id);
       const toast = toaster($("msg"));
 
@@ -72,17 +72,25 @@
         { g: "出力設定", key: "printGuide", label: "印刷用にカット線を入れる", type: "bool", def: true }
       ];
 
-      const state = { values: defaults(PARAMS), mode: "flat", art: null };
+      const state = { values: defaults(PARAMS), mode: "flat", art: null, artSeq: 0 };
       const persist = () => storage.save(PREVIEW_LS_KEY, { version: 1, mode: state.mode, ...state.values });
+      const persistSoon = debounce(persist, 300);
+      window.addEventListener("pagehide", persist);
 
+      // 画像は数 MB になることがある。同じ条件なら同じ文字列（同じ参照）を返し、
+      // renderScene が画像のノードを作り直さないようにする（作り直すと再デコードでチラつく）
+      let artCache = { key: null, markup: "" };
       function artMarkup(v) {
         const art = state.art;
         if (!art) return placeholder(v, "画像を読み込んでください", "選択 / ドラッグ&ドロップ / 貼り付け");
+        const key = `${state.artSeq}|${v.artFit}|${v.boxW}|${v.boxH}`;
+        if (artCache.key === key) return artCache.markup;
         let iw, ih;
         if (v.artFit === "fit") { iw = v.boxW; ih = v.boxH; }
         else { iw = art.w * art.mmPerPx; ih = art.h * art.mmPerPx; }
         const x = (v.boxW - iw) / 2, y = (v.boxH - ih) / 2;
-        return `<image href="${art.url}" xlink:href="${art.url}" x="${f(x)}" y="${f(y)}" width="${f(iw)}" height="${f(ih)}" preserveAspectRatio="none" />`;
+        artCache = { key, markup: `<image href="${art.url}" xlink:href="${art.url}" x="${f(x)}" y="${f(y)}" width="${f(iw)}" height="${f(ih)}" preserveAspectRatio="none" />` };
+        return artCache.markup;
       }
 
       function render() {
@@ -92,14 +100,18 @@
       }
 
       // ---- UI ----
-      const sync = buildParamsUi($("params"), PARAMS, state.values, () => { persist(); render(); });
+      const renderSoon = frame(render); // スライダーを動かしている間は、1 フレームに 1 回だけ描き直す
+      const sync = buildParamsUi($("params"), PARAMS, state.values, () => { persistSoon(); renderSoon(); });
       $("selMode").innerHTML = Object.entries(MODES).map(([k, label]) => `<option value="${k}">${label}</option>`).join("");
       $("selMode").onchange = (e) => { state.mode = e.target.value; persist(); render(); };
 
       // ---- 画像 ----
       async function setArt(blob, name, save = true) {
         try {
+          const prev = state.art;
           state.art = await loadArt(blob, name);
+          state.artSeq++;
+          releaseArt(prev);
           if (save) { try { await idb.set(ART_KEY, { blob, name }); } catch (e) { toast("画像のブラウザ保存に失敗しました（今回の表示は可能）"); } }
           render();
         } catch (e) {

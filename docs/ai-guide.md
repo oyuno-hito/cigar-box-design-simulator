@@ -23,13 +23,34 @@
 
 シールは箱の面より、上下左右に約 1.5mm 内側までしか載りません。重要な要素は端から 5mm 以上離します。
 
-## テンプレートを使う場合（推奨）
+## ページの作り方（推奨）
 
-`draft/index.html` をコピーして、`AI-SLOT:BEGIN` 〜 `AI-SLOT:END` の中（`PARAMS` と `draw`）だけを書き換えます。
-表示モード・箱の切り替え・サイドテープ・出力ボタンは変えません。
+画面の固定部分は、共通スクリプト `shared/draft-app.js` が作ります。
+表示モード、箱の切り替え、サイドテープ（4 辺・色と幅つき）、プレビュー（スマホでは画面上部に固定）、「SVGを保存」「SVGをコピー」「仕上げページを開く」です。
+自分で作り直さず、`PARAMS` と `draw` を書いて `CigarBox.mountDraft` を呼びます。
 
-共通部分（`shared/box.js`、`shared/style.css`）は、公開 URL から `<script src>` と `<link>` で読み込めます。
-オフラインで使うなら、中身をページにコピーします。
+```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>デザイン微調整</title>
+  <link rel="stylesheet" href="https://（このサイト）/shared/style.css" />
+</head>
+<body>
+  <script src="https://（このサイト）/shared/box.js"></script>
+  <script src="https://（このサイト）/shared/draft-app.js"></script>
+  <script>
+    const PARAMS = [ /* 調整項目 */ ];
+    function draw(box, p) { return `<rect .../>`; }
+    CigarBox.mountDraft({ title: "デザイン微調整", note: "ページの使い方を 2〜3 行で", PARAMS, draw });
+  </script>
+</body>
+</html>
+```
+
+`draft/index.html` が、動く見本です。外部スクリプトを読み込めない環境では、`box.js`・`draft-app.js`・`style.css` の中身をページに貼ります。
 
 ### PARAMS（調整項目）
 
@@ -57,15 +78,16 @@
 ループ・三角関数・乱数など、JavaScript で自由に生成してかまいません。
 参考：[`examples/generate-waves.mjs`](../examples/generate-waves.mjs)（波のデザインを生成するスクリプト）
 
-## テンプレートを使わない場合
+## 共通スクリプトを使えない場合
 
-テンプレートを読めないときは、次を満たす HTML（ブラウザで開くだけで動く 1 ファイル）を作ります。
+共通スクリプトを取得できないときだけ、次を満たす HTML（ブラウザで開くだけで動く 1 ファイル）を自作します。
 
 1. 調整項目を動かすスライダーや色選択など
-2. 箱の面と同じ大きさのプレビュー（きぞはこ 180×120mm / かずはこ 165×120mm の切り替え）
-3. 「SVGを保存」：調整値を反映した SVG をファイルに保存する
-4. 「仕上げページを開く」：`preview/` を別のウィンドウで開く（`<a target="_blank" rel="noopener">`、別のウィンドウで開くとわかるアイコン付き）
-5. あれば「SVGをコピー」：SVG のコードをクリップボードへ（仕上げページに貼り付けて読み込める）
+2. 箱の面と同じ大きさのプレビュー（きぞはこ 180×120mm / かずはこ 165×120mm の切り替え）。スマホでは画面上部に固定する
+3. 「サイドテープを貼る」（色と幅を変えられる。箱の面の 4 辺に貼る）
+4. 「SVGを保存」：調整値を反映した SVG をファイルに保存する
+5. 「仕上げページを開く」：`preview/` を別のウィンドウで開く（`<a target="_blank" rel="noopener">`、別のウィンドウで開くとわかるアイコン付き）
+6. 「SVGをコピー」：SVG のコードをクリップボードへ（仕上げページに貼り付けて読み込める）
 
 仕上げページは別のサイトなので、データは直接渡せません。
 保存した SVG を、仕上げページへのドラッグ&ドロップ、ファイルの選択、コードの貼り付けで読み込みます。
