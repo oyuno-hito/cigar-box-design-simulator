@@ -68,6 +68,7 @@ summary { cursor: pointer; padding: 4px 0; }
 .stage.dragover { outline: 2px dashed #4c93ff; outline-offset: -8px; }
 .stage svg { width: 100%; max-width: 760px; height: auto; box-shadow: 0 0 0 1px #94a3b8; }
 #msg, #cbx-msg { min-height: 1.4em; color: #fbbf24; }
+#msg:empty, #cbx-msg:empty { display: none; }
 .touch-only { display: none; }
 @media (pointer: coarse) { .touch-only { display: block; } }
 
@@ -86,11 +87,16 @@ summary { cursor: pointer; padding: 4px 0; }
   body { flex-direction: column; padding: 8px; }
   .controls { width: 100%; }
   .stage {
-    order: -1; position: sticky; top: 0; z-index: 5; width: 100%; padding: 8px;
+    order: -1; position: sticky; top: 0; z-index: 5; width: 100%; padding: 6px; gap: 0;
     /* 固定表示の領域を専用レイヤーに分け、スクロールや再描画でチラつくのを防ぐ */
     transform: translateZ(0);
     -webkit-transform: translateZ(0);
   }
   /* 高さを固定し、表示モードや箱で縦横比が変わっても領域の大きさを変えない（下のコントロールが動かない） */
-  .stage svg { height: 36vh; height: 36svh; max-width: none; box-shadow: none; }
+  .stage svg { height: 24vh; height: 24svh; max-height: 210px; max-width: none; box-shadow: none; }
+  /* メッセージは、プレビューの上に重ねて出す（出ても領域の高さが変わらない） */
+  .stage #msg, .stage #cbx-msg {
+    position: absolute; left: 6px; right: 6px; bottom: 6px; margin: 0; min-height: 0;
+    background: rgba(20, 24, 32, .88); padding: 3px 8px; border-radius: 6px;
+  }
 }

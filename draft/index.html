@@ -99,7 +99,7 @@
           <textarea id="briefItems" rows="2" style="min-height:44px" placeholder="例：形の数、間隔、色、回転、背景色"></textarea>
         </div>
         <div class="btn-row"><button id="btnCopyPrompt" class="primary">AIへの依頼文をコピー</button></div>
-        <p class="note">参考画像と一緒にAIに送ってください。AIがこのページを元に、あなた用の調整ツールを作ります。</p>`;
+        <p class="note">参考画像と一緒にAIに送ってください。AIがこのページを元に、あなた用の調整ツールを作ります。サイドテープの設定は、仕上げページと共通で、依頼文に入ります。</p>`;
 
       const app = CigarBox.mountDraft({
         crumb: '<a href="../">トップ</a> / デザイン微調整（テンプレート）',
@@ -129,6 +129,9 @@
           guide: new URL("../docs/ai-guide.md", page).href,
           examples: new URL("../examples/", page).href
         };
+        // サイドテープの現在の設定（仕上げページと共通）を、AI が作るページの初期値として渡す
+        const t = app.state.fixed;
+        const tape = `{ sideTape: ${!!t.sideTape}, tapeColor: "${t.tapeColor}", tapeX: ${t.tapeX}, tapeY: ${t.tapeY}, tapeLink: ${!!t.tapeLink} }`;
         const brief = items.trim() || "（なし。または、動かしたい項目を書く）";
         return `添付した画像のデザインを、ファミマ・ローソンのシール紙に印刷してシガーボックスに貼るシールにします。
 そのデザインを SVG で再現して、項目を動かして調整できる「調整ページ」を作ってください。
@@ -145,10 +148,11 @@ ${brief}
 # 調整ページ（ブラウザで開くだけで動く HTML 1 ファイル）
 画面の固定部分（表示モード・箱の切り替え・サイドテープ・プレビュー・出力ボタン）は、共通スクリプトが作ります。
 自分で作り直さず、下の骨組みの PARAMS と draw だけを書いてください。
-- 箱の切り替え、「サイドテープを貼る」（色・幅つき。4 辺に貼る）、プレビュー（スマホでは画面上部に固定）、「SVGを保存」「PNGで保存」「SVGをコピー」「仕上げページを開く」は、共通スクリプトが用意する。同じものを自作しない
+- 箱の切り替え、「サイドテープを貼る」（色と、左右・上下それぞれの幅つき。4 辺に貼る）、プレビュー（スマホでは画面上部に固定）、「SVGを保存」「PNGで保存」「SVGをコピー」「仕上げページを開く」は、共通スクリプトが用意する。同じものを自作しない
 - title と note は書き換えてよい。note には、ページの使い方を 2〜3 行で書く
+- tape は、サイドテープの初期値（利用者がいつも使う設定）。値を変えたり消したりせず、そのまま渡す。画面で変えられるのは共通スクリプトの役目なので、サイドテープの項目を PARAMS に入れない
 - 共通スクリプトは公開 URL から読み込む。外部スクリプトを読み込めない環境では、${urls.shared} の box.js・draft-app.js・style.css の中身を取得して、それぞれ <script> と <style> としてページに貼る
-- 共通スクリプトも取得できないときだけ、同じ機能を自作する（箱は きぞはこ 180×120mm / かずはこ 165×120mm、サイドテープは 4 辺・色と幅を変えられる、プレビューはスマホで上部に固定、「SVGを保存」と「仕上げページを開く」を別々のボタンにする）
+- 共通スクリプトも取得できないときだけ、同じ機能を自作する（箱は きぞはこ 180×120mm / かずはこ 165×120mm、サイドテープは 4 辺・色と、左右・上下それぞれの幅を変えられる（初期値は tape の値）、プレビューはスマホで上部に固定、「SVGを保存」と「仕上げページを開く」を別々のボタンにする）
 
 骨組み（PARAMS と draw を、画像のデザインに合わせて書き換える。見本は同じ形を規則的に並べるデザイン）：
 \`\`\`html
@@ -166,7 +170,7 @@ ${brief}
   <script>
 ${slotSource.replace(/^/gm, "    ")}
 
-    CigarBox.mountDraft({ title: "デザイン微調整", note: "ここにページの使い方を 2〜3 行で書く", PARAMS, draw });
+    CigarBox.mountDraft({ title: "デザイン微調整", note: "ここにページの使い方を 2〜3 行で書く", tape: ${tape}, PARAMS, draw });
   <\/script>
 </body>
 </html>

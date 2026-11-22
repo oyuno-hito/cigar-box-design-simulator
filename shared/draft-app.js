@@ -38,6 +38,8 @@
    *   crumb         … 見出しの上に出すパンくず（HTML 文字列。省略可）
    *   extra         … 説明文の下に差し込む要素（省略可）
    *   previewUrl    … 仕上げページの URL（省略時は、このファイルの隣の ../preview/）
+   *   tape          … サイドテープの初期値 { sideTape, tapeColor, tapeX, tapeY, tapeLink }（省略可。依頼文に入っている値をそのまま書く）
+   *                   このブラウザにサイドテープの共通設定が保存されていれば、そちらが優先される
    *   storageKey    … 入力値の保存キー
    * 戻り値 { state, render, toast, buildSvg }
    */
@@ -45,7 +47,7 @@
     const { PARAMS, draw } = opts || {};
     if (!Array.isArray(PARAMS) || typeof draw !== "function") throw new Error("mountDraft には PARAMS（配列）と draw（関数）が必要です");
     ensureStyle();
-    const { BOX_PARAMS, MODES, spec, placeholder, renderScene, frame, debounce, defaults, buildParamsUi, sanitize, storage, idb, saveFile, svgToPng, toaster, esc, f, ART_KEY, PREVIEW_LS_KEY } = CB;
+    const { DRAFT_BOX_PARAMS, TAPE_PARAMS, tapeStore, MODES, spec, placeholder, renderScene, frame, debounce, defaults, buildParamsUi, sanitize, storage, idb, saveFile, svgToPng, toaster, esc, f, ART_KEY, PREVIEW_LS_KEY } = CB;
 
     // ---- 画面（固定部分） ----
     if (!document.querySelector('meta[name="viewport"]')) document.head.insertAdjacentHTML("beforeend", '<meta name="viewport" content="width=device-width, initial-scale=1" />');
@@ -82,9 +84,13 @@
     const toast = toaster($("cbx-msg"));
 
     // ---- 状態 ----
-    const LS_KEY = opts.storageKey || `cigar-box-draft:v4:${location.pathname}`;
-    const state = { fixed: defaults(BOX_PARAMS), mode: "flat", values: defaults(PARAMS) };
-    const persist = () => storage.save(LS_KEY, { version: 4, mode: state.mode, fixed: state.fixed, values: state.values });
+    const LS_KEY = opts.storageKey || `cigar-box-draft:v5:${location.pathname}`;
+    const state = { fixed: defaults(DRAFT_BOX_PARAMS), mode: "flat", values: defaults(PARAMS) };
+    // サイドテープの設定は、仕上げページと共通の保存先に書く（箱のサイズだけ、このページに保存する）
+    const persist = () => {
+      storage.save(LS_KEY, { version: 5, mode: state.mode, fixed: { box: state.fixed.box }, values: state.values });
+      tapeStore.save(state.fixed);
+    };
     const persistSoon = debounce(persist, 300);
     window.addEventListener("pagehide", persist);
     const boxOf = () => { const v = spec(state.fixed); return { v, box: { w: v.boxW, h: v.boxH, key: v.box } }; };
@@ -119,7 +125,7 @@
     // ---- UI ----
     const renderSoon = frame(render); // スライダーを動かしている間は、1 フレームに 1 回だけ描き直す
     const onChange = () => { persistSoon(); renderSoon(); };
-    const syncFixed = buildParamsUi($("cbx-fixed"), BOX_PARAMS, state.fixed, onChange);
+    const syncFixed = buildParamsUi($("cbx-fixed"), DRAFT_BOX_PARAMS, state.fixed, onChange);
     const syncDesign = buildParamsUi($("cbx-design"), PARAMS, state.values, onChange);
     $("cbx-mode").innerHTML = DRAFT_MODES.map((k) => `<option value="${k}">${MODES[k]}</option>`).join("");
     $("cbx-mode").onchange = (e) => { state.mode = e.target.value; persist(); render(); };
@@ -164,7 +170,8 @@
           const box = state.fixed.box;
           await idb.set(ART_KEY, { blob: currentBlob(), name: `design_${box}.svg` });
           const saved = storage.load(PREVIEW_LS_KEY) || { version: 1 };
-          storage.save(PREVIEW_LS_KEY, { ...saved, box, sideTape: state.fixed.sideTape, tapeWidth: state.fixed.tapeWidth, tapeColor: state.fixed.tapeColor });
+          storage.save(PREVIEW_LS_KEY, { ...saved, box });
+          tapeStore.save(state.fixed); // サイドテープは共通の保存先から、仕上げページが読む。余白は仕上げページの設定のまま
         } else {
           toast((await copyText(buildSvg())) ? "SVGをコピーしました。仕上げページに貼り付けてください" : "SVGをコピーできませんでした。「SVGを保存」して読み込んでください");
         }
@@ -177,8 +184,10 @@
 
     // ---- 起動 ----
     const saved = storage.load(LS_KEY);
+    // サイドテープの初期値：このブラウザに保存した共通設定 > 依頼文で渡された値（opts.tape）> 既定値
+    Object.assign(state.fixed, sanitize(TAPE_PARAMS, opts.tape), tapeStore.load());
     if (saved) {
-      Object.assign(state.fixed, sanitize(BOX_PARAMS, saved.fixed));
+      Object.assign(state.fixed, sanitize(DRAFT_BOX_PARAMS, saved.fixed));
       Object.assign(state.values, sanitize(PARAMS, saved.values));
       if (DRAFT_MODES.includes(saved.mode)) state.mode = saved.mode;
     }

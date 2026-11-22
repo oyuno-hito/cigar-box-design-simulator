@@ -10,51 +10,75 @@
   // 固定仕様
   // =========================================================
   // 用紙はコンビニのシールプリント 178×127mm 固定。
-  // 下側のカット幅は 10mm で一旦固定（カット後の高さ 117mm ＝ 貼り付け先 120mm − 余白 3mm）。
-  //   検討: 7mm カット（カット後 120mm）や、用紙サイズの見直しも含めて後で再検討する。
+  // 余白は画面で変更できる（左右 marginX・上下 marginY。初期値は 3mm、1mm 刻みで 0〜20mm。連動のロックもある）。
+  //   シールの大きさ＝箱の面 − 余白 で、カット幅はそこから決まる。余白は、それぞれ両側の合計（片側はその半分）。
+  //   上下：カット後の高さ = 120 − 上下の余白、下側のカット幅 = 127 − カット後の高さ（余白 3mm なら 10mm）。
+  //   左右：きぞはこは用紙（178mm）が箱の面（180mm）より小さいので、左右は 2mm より小さくできない。
+  //         0〜2mm の間は左右の余白が 2mm 固定で、2mm を超えた分だけ指定どおりになる。
+  //         かずはこ（165mm）は用紙より小さいので、指定した余白のとおり。右側だけを切る。
   // サイドテープの色（tapeColor）と幅は画面で変更できる（初期値は白 / 6mm）。
   // デザイン（画像・SVG）は「箱の面と同寸」で作る前提。座標は mm（SVG は viewBox の 1 単位 = 1mm）。
   const FIXED = {
     sheetW: 178, sheetH: 127, boxH: 120, boxD: 60,
-    cutBottom: 10,
     boxColor: "#cbd5e1", bgColor: "#ffffff",
     dpi: 300
   };
 
-  // 箱ごとの仕様。cutRight は用紙の右側を切る幅（mm）。
-  //   きぞはこ：用紙(178)が貼り付け先(180)より小さいので横は切らない。
-  //   かずはこ：余白 3mm 固定 → カット後の幅 = 165 − 3 = 162mm → 178 − 162 = 16mm を右側だけ切る。
-  //     検討: 切る側（右のみ）、余白の考え方（合計 3mm）は後で見直す。
+  // 箱ごとの仕様（貼り付け先の幅）。切る側は右のみ（検討: 左右に分けるかは後で見直す）。
   const BOXES = {
-    kizo: { label: "きぞはこ（180×120×60mm）", boxW: 180, cutRight: 0 },
-    kazu: { label: "かずはこ（165×120×60mm）", boxW: 165, cutRight: 16 }
+    kizo: { label: "きぞはこ（180×120×60mm）", boxW: 180 },
+    kazu: { label: "かずはこ（165×120×60mm）", boxW: 165 }
   };
+  const MARGIN_DEFAULT = 3, MARGIN_MAX = 20;
 
   // 箱・サイドテープの設定項目（両ページ共通）
   const BOX_PARAMS = [
     { g: "箱", key: "box", label: "箱のサイズ", type: "select", options: Object.entries(BOXES).map(([k, b]) => [k, b.label]), def: "kizo" },
     { g: "サイドテープ", key: "sideTape", label: "サイドテープを貼る", type: "bool", def: true },
     { key: "tapeColor", label: "サイドテープの色", type: "color", def: "#ffffff", inlineWith: "sideTape" }, // 「貼る」と同じ行に置く
-    { key: "tapeWidth", label: "幅", unit: "mm", min: 1, max: 30, step: 0.5, def: 6 }
+    { key: "tapeX", label: "左右の幅", unit: "mm", min: 0, max: 30, step: 1, def: 6, linkFlag: "tapeLink", linkWith: "tapeY" },
+    { key: "tapeY", label: "上下の幅", unit: "mm", min: 0, max: 30, step: 1, def: 6, linkFlag: "tapeLink", linkWith: "tapeX" },
+    { key: "tapeLink", label: "縦横を連動", type: "bool", def: true },
+    { g: "余白", key: "marginX", label: "左右の余白（合計）", unit: "mm", min: 0, max: MARGIN_MAX, step: 1, def: MARGIN_DEFAULT,
+      linkFlag: "marginLink", linkWith: "marginY" },
+    { key: "marginY", label: "上下の余白（合計）", unit: "mm", min: 0, max: MARGIN_MAX, step: 1, def: MARGIN_DEFAULT,
+      linkFlag: "marginLink", linkWith: "marginX" },
+    { key: "marginLink", label: "縦横を連動", type: "bool", def: true }
   ];
+
+  // デザイン微調整ページには余白の設定を出さない（余白は仕上げページで決める。微調整中は初期値の 3mm で表示する）
+  const DRAFT_BOX_PARAMS = BOX_PARAMS.filter((p) => !/^margin/.test(p.key));
+  // サイドテープの設定。仕上げページと微調整ページ（同じサイト内）で共通にする。AI が作るページには、依頼文で初期値として渡す
+  const TAPE_KEYS = ["sideTape", "tapeColor", "tapeX", "tapeY", "tapeLink"];
+  const TAPE_PARAMS = BOX_PARAMS.filter((p) => TAPE_KEYS.includes(p.key));
 
   const MODES = {
     flat: "プレビュー（平面）",
     solid: "プレビュー（立体）",
     triple: "プレビュー（3箱）",
-    print: "印刷用"
+    print: "印刷用（仕上がり確認）"
   };
 
   const f = (n) => (Math.round(n * 100) / 100).toString();
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   // 固定仕様と箱サイズを展開した、描画用の値
-  const spec = (values) => ({
-    ...FIXED, ...values,
-    boxW: BOXES[values.box].boxW,
-    cutRight: BOXES[values.box].cutRight,
-    tape: values.sideTape ? values.tapeWidth : 0
-  });
+  const clampMargin = (n, def) => Math.min(MARGIN_MAX, Math.max(0, Number.isFinite(Number(n)) ? Number(n) : def));
+  const spec = (values) => {
+    const boxW = BOXES[values.box].boxW;
+    const mx = clampMargin(values.marginX, MARGIN_DEFAULT), my = clampMargin(values.marginY, MARGIN_DEFAULT);
+    const marginX = Math.max(mx, boxW - FIXED.sheetW); // 左右（用紙が足りないときは、足りない分が最小）
+    const marginY = my;
+    const stickerW = boxW - marginX, stickerH = FIXED.boxH - marginY;
+    return {
+      ...FIXED, ...values,
+      boxW, marginX, marginY,
+      cutRight: Math.max(0, FIXED.sheetW - stickerW),
+      cutBottom: Math.max(0, FIXED.sheetH - stickerH),
+      tapeX: values.sideTape ? values.tapeX : 0, // 左右のテープの幅
+      tapeY: values.sideTape ? values.tapeY : 0  // 上下のテープの幅
+    };
+  };
 
   // =========================================================
   // レイアウト計算（mm）
@@ -84,12 +108,12 @@
 
   // 箱の面を <defs> に1回だけ定義し、<use> で何度でも配置する（3箱表示でデザインを重複させない）
   function buildFaceDefs(v, L) {
-    const t = v.tape;
-    const tape = t > 0 ? `<g fill="${v.tapeColor}">
-        <rect x="0" y="0" width="${v.boxW}" height="${t}" />
-        <rect x="0" y="${f(v.boxH - t)}" width="${v.boxW}" height="${t}" />
-        <rect x="0" y="0" width="${t}" height="${v.boxH}" />
-        <rect x="${f(v.boxW - t)}" y="0" width="${t}" height="${v.boxH}" />
+    const tx = v.tapeX, ty = v.tapeY;
+    const tape = tx > 0 || ty > 0 ? `<g fill="${v.tapeColor}">
+        <rect x="0" y="0" width="${v.boxW}" height="${ty}" />
+        <rect x="0" y="${f(v.boxH - ty)}" width="${v.boxW}" height="${ty}" />
+        <rect x="0" y="0" width="${tx}" height="${v.boxH}" />
+        <rect x="${f(v.boxW - tx)}" y="0" width="${tx}" height="${v.boxH}" />
       </g>` : "";
     return `<defs>
       <clipPath id="cbx-boxClip"><rect x="0" y="0" width="${v.boxW}" height="${v.boxH}" /></clipPath>
@@ -143,10 +167,18 @@
     return { dx: v.boxD * k * Math.cos(ang), dy: -v.boxD * k * Math.sin(ang) };
   }
   // 立体の箱1つ（左上 x 位置）：右側面・上面・正面
+  // 色に係数を掛けて暗くする（側面の陰影用）
+  const shade = (hex, k) => {
+    const n = parseInt(String(hex).replace("#", ""), 16);
+    const c = (sh) => Math.min(255, Math.max(0, Math.round(((n >> sh) & 255) * k))).toString(16).padStart(2, "0");
+    return `#${c(16)}${c(8)}${c(0)}`;
+  };
+  // 側面（右の面・上の面）は、サイドテープを貼っていればテープの色、なければ箱の色
   function solidBox(v, x, dx, dy) {
+    const base = v.tapeX > 0 || v.tapeY > 0 ? v.tapeColor : v.boxColor;
     return `<g transform="translate(${f(x)} 0)">
-      <polygon points="${v.boxW},0 ${f(v.boxW + dx)},${f(dy)} ${f(v.boxW + dx)},${f(v.boxH + dy)} ${v.boxW},${v.boxH}" fill="#e2e8f0" stroke="#94a3b8" stroke-width="0.3" />
-      <polygon points="0,0 ${f(dx)},${f(dy)} ${f(v.boxW + dx)},${f(dy)} ${v.boxW},0" fill="#f1f5f9" stroke="#94a3b8" stroke-width="0.3" />
+      <polygon points="${v.boxW},0 ${f(v.boxW + dx)},${f(dy)} ${f(v.boxW + dx)},${f(v.boxH + dy)} ${v.boxW},${v.boxH}" fill="${shade(base, 0.89)}" stroke="#94a3b8" stroke-width="0.3" />
+      <polygon points="0,0 ${f(dx)},${f(dy)} ${f(v.boxW + dx)},${f(dy)} ${v.boxW},0" fill="${shade(base, 0.95)}" stroke="#94a3b8" stroke-width="0.3" />
       ${useFace(0)}
     </g>`;
   }
@@ -177,7 +209,10 @@
 
     if (mode === "print") {
       const sheet = `<rect x="0" y="0" width="${v.sheetW}" height="${v.sheetH}" fill="${v.bgColor}" />`;
-      setView(0, 0, v.sheetW, v.sheetH, `${sheet}<g transform="translate(${f(-L.sx)} ${f(-L.sy)})">${useArt}</g>${buildGuide(v, L)}`);
+      // デザインは用紙の範囲で切る（用紙の外にはみ出した部分は、書き出しにも画面にも出さない）
+      const body = `<defs><clipPath id="cbx-sheetClip"><rect x="0" y="0" width="${v.sheetW}" height="${v.sheetH}" /></clipPath></defs>
+        ${sheet}<g clip-path="url(#cbx-sheetClip)"><g transform="translate(${f(-L.sx)} ${f(-L.sy)})">${useArt}</g></g>${buildGuide(v, L)}`;
+      setView(0, 0, v.sheetW, v.sheetH, body);
     } else if (mode === "flat") {
       const w = REF_W + MARGIN * 2, h = v.boxH + MARGIN * 2;
       setView(-MARGIN, -MARGIN, w, h, `${buildFaceDefs(v, L)}${bg(-MARGIN, -MARGIN, w, h)}${useFace((REF_W - v.boxW) / 2)}`);
@@ -223,8 +258,26 @@
       if (title) section.innerHTML = `<h4>${esc(title)}</h4>`;
       root.appendChild(section);
     };
+    // 連動（ロック）：2 つの項目の差を保ったまま、一緒に動かす
+    const diffs = {};
+    const pairOf = (p) => [p.key, p.linkWith].sort();
+    const clampTo = (q, n) => Math.min(q.max, Math.max(q.min, n));
+    const byKey = Object.fromEntries(params.map((q) => [q.key, q]));
+    const resetDiff = (p) => { const [a, b] = pairOf(p); diffs[`${a}|${b}`] = values[b] - values[a]; };
     for (const p of params) {
-      const set = (val) => { values[p.key] = val; inputs[p.key](val); onChange(p.key, val); };
+      const set = (val) => {
+        if (p.linkFlag && values[p.linkFlag] && byKey[p.linkWith]) {
+          const [a, b] = pairOf(p), key = `${a}|${b}`;
+          if (diffs[key] === undefined) diffs[key] = values[b] - values[a]; // 最初の操作の直前の差
+          const other = p.linkWith, d = diffs[key];
+          const next = clampTo(byKey[other], p.key === a ? val + d : val - d);
+          values[p.key] = val; inputs[p.key](val);
+          if (values[other] !== next) { values[other] = next; inputs[other](next); onChange(other, next); }
+        } else { values[p.key] = val; inputs[p.key](val); }
+        // ロックを入れた時点の差を、保つ差にする
+        params.filter((q) => q.linkFlag === p.key).forEach(resetDiff);
+        onChange(p.key, val);
+      };
 
       // 別の項目と同じ行に置く色の選択（例：サイドテープを貼る + 色）
       if (p.inlineWith) {
@@ -273,6 +326,7 @@
         rng.oninput = () => apply(rng.value);
         inputs[p.key] = (val) => { setIf(num, "value", String(val)); setIf(rng, "value", String(val)); };
       }
+      if (p.note) { const n = document.createElement("p"); n.className = "note"; n.textContent = p.note; wrap.appendChild(n); }
       section.appendChild(wrap);
     }
     return () => { for (const p of params) inputs[p.key](values[p.key]); };
@@ -333,6 +387,12 @@
   };
   const ART_KEY = "art";
   const PREVIEW_LS_KEY = "cigar-box-sim:v1";
+  const TAPE_LS_KEY = "cigar-box-sim:tape";
+  // サイドテープの共通設定（保存されていなければ空のオブジェクト）
+  const tapeStore = {
+    load: () => sanitize(TAPE_PARAMS, storage.load(TAPE_LS_KEY)),
+    save: (values) => storage.save(TAPE_LS_KEY, Object.fromEntries(TAPE_KEYS.filter((k) => k in values).map((k) => [k, values[k]])))
+  };
 
   // =========================================================
   // SVG・画像の読み込み
@@ -507,10 +567,10 @@
   }
 
   global.CigarBox = {
-    FIXED, BOXES, BOX_PARAMS, MODES,
+    FIXED, BOXES, BOX_PARAMS, DRAFT_BOX_PARAMS, TAPE_KEYS, TAPE_PARAMS, MODES,
     f, esc, spec, layout, placeholder, renderScene, frame, debounce, releaseArt, saveFile, svgToPng, isTouch,
     defaults, buildParamsUi, sanitize, storage,
-    idb, ART_KEY, PREVIEW_LS_KEY,
+    idb, ART_KEY, PREVIEW_LS_KEY, TAPE_LS_KEY, tapeStore,
     parseSvg, loadArt,
     exportPng, download, baseName, toaster
   };

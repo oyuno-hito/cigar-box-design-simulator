@@ -57,7 +57,7 @@
   <script src="../shared/box.js"></script>
   <script>
     (function () {
-      const { FIXED, BOX_PARAMS, MODES, f, spec, placeholder, renderScene, frame, debounce, defaults, buildParamsUi, sanitize, storage, idb, ART_KEY, PREVIEW_LS_KEY, loadArt, releaseArt, exportPng, saveFile, baseName, toaster } = CigarBox;
+      const { FIXED, BOX_PARAMS, MODES, f, spec, placeholder, renderScene, frame, debounce, defaults, buildParamsUi, sanitize, storage, idb, ART_KEY, PREVIEW_LS_KEY, tapeStore, loadArt, releaseArt, exportPng, saveFile, baseName, toaster } = CigarBox;
       const $ = (id) => document.getElementById(id);
       const toast = toaster($("msg"));
 
@@ -74,7 +74,8 @@
       ];
 
       const state = { values: defaults(PARAMS), mode: "flat", art: null, artSeq: 0 };
-      const persist = () => storage.save(PREVIEW_LS_KEY, { version: 1, mode: state.mode, ...state.values });
+      // サイドテープの設定は、デザイン微調整ページと共通の保存先にも書く
+      const persist = () => { storage.save(PREVIEW_LS_KEY, { version: 1, mode: state.mode, ...state.values }); tapeStore.save(state.values); };
       const persistSoon = debounce(persist, 300);
       window.addEventListener("pagehide", persist);
 
@@ -162,6 +163,7 @@
       (async function init() {
         const saved = storage.load(PREVIEW_LS_KEY);
         if (saved) { Object.assign(state.values, sanitize(PARAMS, saved)); if (saved.mode in MODES) state.mode = saved.mode; }
+        Object.assign(state.values, tapeStore.load()); // サイドテープは共通の保存先を優先する
         sync();
         $("selMode").value = state.mode;
         render();
