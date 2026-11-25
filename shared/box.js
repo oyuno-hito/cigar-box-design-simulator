@@ -52,12 +52,14 @@
   const TAPE_KEYS = ["sideTape", "tapeColor", "tapeX", "tapeY", "tapeLink"];
   const TAPE_PARAMS = BOX_PARAMS.filter((p) => TAPE_KEYS.includes(p.key));
 
+  // プレビューの見せ方（cigar-box-design-lab の拡大表示と同じ 3 つ）と、印刷用
   const MODES = {
-    flat: "プレビュー（平面）",
-    solid: "プレビュー（立体）",
-    triple: "プレビュー（3箱）",
-    print: "印刷用（仕上がり確認）"
+    one: "一箱",
+    stack: "縦に並べる",
+    row: "横に並べる",
+    print: "印刷用"
   };
+  const PREVIEW_MODES = ["one", "stack", "row"];
 
   const f = (n) => (Math.round(n * 100) / 100).toString();
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -133,7 +135,6 @@
   }
   // デザイン本体は <defs> の #cbx-art に1つだけ置き、再描画のたびに作り直さない（画像の再デコードによるチラつきを避ける）
   const useArt = `<use href="#cbx-art" xlink:href="#cbx-art" />`;
-  const useFace = (x) => `<use href="#cbx-face" xlink:href="#cbx-face" x="${f(x)}" y="0" />`;
 
   function buildGuide(v, L) {
     if (!v.printGuide || !L.lines.length) return "";
@@ -159,28 +160,66 @@
 
   // プレビューの枠は固定（最大の箱に合わせる）。箱が小さいほど、枠の中で小さく表示される
   const REF_W = Math.max(...Object.values(BOXES).map((b) => b.boxW));
-  const MARGIN = 6;
+  const MARGIN = 16;
   const STAGE_BG = "#2c3545";
+  const SPACE = 22; // 「一箱」の 4 つの間の隙間（mm）
 
+  // 箱の奥行きの見え方。右の側面と上面が見える向き（どんな向きでも、見える側面は右と上）
   function solidMetrics(v) {
-    const k = 0.4, ang = (30 * Math.PI) / 180;
+    const k = 0.62, ang = (40 * Math.PI) / 180;
     return { dx: v.boxD * k * Math.cos(ang), dy: -v.boxD * k * Math.sin(ang) };
   }
-  // 立体の箱1つ（左上 x 位置）：右側面・上面・正面
   // 色に係数を掛けて暗くする（側面の陰影用）
   const shade = (hex, k) => {
     const n = parseInt(String(hex).replace("#", ""), 16);
     const c = (sh) => Math.min(255, Math.max(0, Math.round(((n >> sh) & 255) * k))).toString(16).padStart(2, "0");
     return `#${c(16)}${c(8)}${c(0)}`;
   };
+  // 立体の箱 1 つ。(x, y) は正面の左上。turn は箱を面の中で時計回りに回した角度（0 / 90 / 180 / 270）。
   // 側面（右の面・上の面）は、サイドテープを貼っていればテープの色、なければ箱の色
-  function solidBox(v, x, dx, dy) {
+  function solidBox(v, x, y, turn, dx, dy) {
+    const flat = turn % 180 === 0;
+    const w = flat ? v.boxW : v.boxH, h = flat ? v.boxH : v.boxW;
     const base = v.tapeX > 0 || v.tapeY > 0 ? v.tapeColor : v.boxColor;
-    return `<g transform="translate(${f(x)} 0)">
-      <polygon points="${v.boxW},0 ${f(v.boxW + dx)},${f(dy)} ${f(v.boxW + dx)},${f(v.boxH + dy)} ${v.boxW},${v.boxH}" fill="${shade(base, 0.89)}" stroke="#94a3b8" stroke-width="0.3" />
-      <polygon points="0,0 ${f(dx)},${f(dy)} ${f(v.boxW + dx)},${f(dy)} ${v.boxW},0" fill="${shade(base, 0.95)}" stroke="#94a3b8" stroke-width="0.3" />
-      ${useFace(0)}
+    const pts = (a) => a.map(([px, py]) => `${f(px)},${f(py)}`).join(" ");
+    const edge = 'stroke="#94a3b8" stroke-width="0.3" stroke-linejoin="round"';
+    // 面は、中心を軸に回す（90 / 270 のときは縦長の面にちょうど収まる）
+    const face = `<g transform="translate(${f(x + w / 2)} ${f(y + h / 2)}) rotate(${turn}) translate(${f(-v.boxW / 2)} ${f(-v.boxH / 2)})"><use href="#cbx-face" xlink:href="#cbx-face" /></g>`;
+    return `<g>
+      <polygon points="${pts([[x + w, y], [x + w + dx, y + dy], [x + w + dx, y + h + dy], [x + w, y + h]])}" fill="${shade(base, 0.89)}" ${edge} />
+      <polygon points="${pts([[x, y], [x + dx, y + dy], [x + w + dx, y + dy], [x + w, y]])}" fill="${shade(base, 0.95)}" ${edge} />
+      ${face}
     </g>`;
+  }
+
+  // 箱の並べ方ごとの図。どれも左上が (0, 0)、座標は mm。{ w, h, body } を返す。箱はどれも隙間なくくっつける
+  //   one   … 1 つの箱を 90 度ずつ回した 4 つ（2×2）
+  //   row   … 横に 3 つ（短辺どうしがくっつく）。turns は左から順の回転
+  //   stack … 縦に 3 つ（長辺どうしがくっつく）。turns は上から順の回転。下の箱から先に描き、上の箱が下の箱の上面を隠す
+  function figure(v, kind, turns) {
+    const { dx, dy } = solidMetrics(v);
+    if (kind === "one") {
+      const cw = REF_W + dx + SPACE, ch = REF_W - dy + SPACE; // 横長・縦長のどちらの箱も収まる大きさ（箱どうしに SPACE の隙間）
+      let body = "";
+      [0, 90, 180, 270].forEach((turn, i) => {
+        const flat = turn % 180 === 0;
+        const w = flat ? v.boxW : v.boxH, h = flat ? v.boxH : v.boxW;
+        const ox = (i % 2) * cw, oy = Math.floor(i / 2) * ch;
+        body += solidBox(v, ox + (cw - w - dx) / 2, oy + (ch - h + dy) / 2 - dy, turn, dx, dy);
+      });
+      return { w: cw * 2 - SPACE, h: ch * 2 - SPACE, body };
+    }
+    const n = turns.length;
+    if (kind === "row") {
+      const x0 = (n * REF_W - n * v.boxW) / 2;
+      let body = "";
+      turns.forEach((turn, i) => { body += solidBox(v, x0 + i * v.boxW, -dy, turn, dx, dy); });
+      return { w: n * REF_W + dx, h: v.boxH - dy, body };
+    }
+    const x0 = (REF_W - v.boxW) / 2;
+    let body = "";
+    for (let i = n - 1; i >= 0; i--) body += solidBox(v, x0, -dy + i * v.boxH, turns[i], dx, dy);
+    return { w: REF_W + dx, h: n * v.boxH - dy, body };
   }
 
   // SVG の骨組み：デザイン置き場（永続）と、箱・枠など毎回作り直す部分
@@ -203,6 +242,7 @@
       setAttr("width", `${f(w)}mm`);
       setAttr("height", `${f(h)}mm`);
       setAttr("viewBox", `${f(x)} ${f(y)} ${f(w)} ${f(h)}`);
+      svg.dataset.mode = mode; // 画面の高さを、見せ方ごとに変えるための目印（style.css）
       scene.innerHTML = inner;
     };
     const bg = (x, y, w, h) => `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" fill="${STAGE_BG}" />`;
@@ -213,21 +253,35 @@
       const body = `<defs><clipPath id="cbx-sheetClip"><rect x="0" y="0" width="${v.sheetW}" height="${v.sheetH}" /></clipPath></defs>
         ${sheet}<g clip-path="url(#cbx-sheetClip)"><g transform="translate(${f(-L.sx)} ${f(-L.sy)})">${useArt}</g></g>${buildGuide(v, L)}`;
       setView(0, 0, v.sheetW, v.sheetH, body);
-    } else if (mode === "flat") {
-      const w = REF_W + MARGIN * 2, h = v.boxH + MARGIN * 2;
-      setView(-MARGIN, -MARGIN, w, h, `${buildFaceDefs(v, L)}${bg(-MARGIN, -MARGIN, w, h)}${useFace((REF_W - v.boxW) / 2)}`);
-    } else {
-      const { dx, dy } = solidMetrics(v);
-      const n = mode === "triple" ? 3 : 1;
-      const gap = 0; // 箱同士はぴったりくっつける（左の箱の側面は右の箱に隠れる）
-      const refTotal = n * REF_W + (n - 1) * gap + dx;
-      const total = n * v.boxW + (n - 1) * gap + dx;
-      const x0 = (refTotal - total) / 2;
-      const w = refTotal + MARGIN * 2, h = v.boxH - dy + MARGIN * 2;
-      let boxes = "";
-      for (let i = 0; i < n; i++) boxes += solidBox(v, x0 + i * (v.boxW + gap), dx, dy);
-      setView(-MARGIN, dy - MARGIN, w, h, `${buildFaceDefs(v, L)}${bg(-MARGIN, dy - MARGIN, w, h)}${boxes}`);
+      return;
     }
+
+    // 縦に並べる・横に並べるは、「全部同じ向き」と「真ん中の一つを 180 度逆に」の 2 つを並べて見せる
+    const GAP = 24, CAP = 13;
+    let figs;
+    if (mode === "one") figs = [{ ...figure(v, "one") }];
+    else {
+      const kind = mode === "stack" ? "stack" : "row";
+      figs = [
+        { ...figure(v, kind, [0, 0, 0]), caption: "全部同じ向き" },
+        { ...figure(v, kind, [0, 180, 0]), caption: "真ん中の一つを 180 度逆に" }
+      ];
+    }
+    const side = mode === "stack"; // 縦に積んだ箱は縦長なので、2 つを左右に並べる。それ以外は、2 つを上下に並べる
+    let x = 0, y = 0, W = 0, H = 0, inner = "";
+    figs.forEach((fig, i) => {
+      const capH = fig.caption ? CAP : 0;
+      inner += `<g transform="translate(${f(x)} ${f(y)})">${fig.body}</g>`;
+      if (fig.caption) inner += `<text x="${f(x + fig.w / 2)}" y="${f(y + fig.h + 9.5)}" text-anchor="middle" font-size="8.5" fill="#cbd5e1" font-family="sans-serif">${esc(fig.caption)}</text>`;
+      W = Math.max(W, x + fig.w); H = Math.max(H, y + fig.h + capH);
+      if (side) x += fig.w + GAP; else y += fig.h + capH + GAP;
+    });
+    // プレビューの枠は、どの見せ方でも「一箱」と同じ大きさにする。ほかの見せ方は、枠に収まるように縮めて中央に置く
+    const base = figure(v, "one");
+    const s = Math.min(1, base.w / W, base.h / H);
+    const tx = (base.w - W * s) / 2, ty = (base.h - H * s) / 2;
+    const fw = base.w + MARGIN * 2, fh = base.h + MARGIN * 2;
+    setView(-MARGIN, -MARGIN, fw, fh, `${buildFaceDefs(v, L)}${bg(-MARGIN, -MARGIN, fw, fh)}<g transform="translate(${f(tx)} ${f(ty)}) scale(${f(s)})">${inner}</g>`);
   }
 
   // スライダー操作のように連続して呼ばれる処理を、1 フレームに 1 回にまとめる
@@ -562,16 +616,34 @@
   }
   const baseName = (name) => (name || "design").replace(/\.[^.]+$/, "").replace(/[^\w\-ぁ-んァ-ヶ一-龠]+/g, "_");
 
+  // 見せ方の切り替え（横に並んだボタン）。set(mode) で選択を合わせる
+  function buildModeTabs(root, modes, onSelect) {
+    root.classList.add("mode-tabs");
+    root.setAttribute("role", "tablist");
+    root.setAttribute("aria-label", "見せ方");
+    const btns = Object.entries(modes).map(([key, label]) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.role = "tab"; b.dataset.mode = key; b.textContent = label;
+      b.onclick = () => onSelect(key);
+      root.appendChild(b);
+      return b;
+    });
+    return (mode) => btns.forEach((b) => {
+      const on = b.dataset.mode === mode;
+      b.classList.toggle("active", on); b.setAttribute("aria-selected", String(on));
+    });
+  }
+
   function toaster(el) {
     return (t) => { el.textContent = t; if (t) setTimeout(() => { if (el.textContent === t) el.textContent = ""; }, 4000); };
   }
 
   global.CigarBox = {
-    FIXED, BOXES, BOX_PARAMS, DRAFT_BOX_PARAMS, TAPE_KEYS, TAPE_PARAMS, MODES,
+    FIXED, BOXES, BOX_PARAMS, DRAFT_BOX_PARAMS, TAPE_KEYS, TAPE_PARAMS, MODES, PREVIEW_MODES,
     f, esc, spec, layout, placeholder, renderScene, frame, debounce, releaseArt, saveFile, svgToPng, isTouch,
     defaults, buildParamsUi, sanitize, storage,
     idb, ART_KEY, PREVIEW_LS_KEY, TAPE_LS_KEY, tapeStore,
     parseSvg, loadArt,
-    exportPng, download, baseName, toaster
+    exportPng, download, baseName, toaster, buildModeTabs
   };
 })(window);

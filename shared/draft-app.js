@@ -21,7 +21,7 @@
   const SHARED = SELF ? new URL("./", SELF) : null;
 
   const ICON_EXTERNAL = `<svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-label="別のウィンドウで開きます" role="img"><path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M6.5 3.5H3.5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" /></svg>`;
-  const DRAFT_MODES = ["flat", "solid", "triple"];
+  const DRAFT_MODES = CB.PREVIEW_MODES; // 印刷用は仕上げページだけ
 
   function ensureStyle() {
     if (!SHARED || document.querySelector("link[data-cbx-style]")) return;
@@ -47,7 +47,7 @@
     const { PARAMS, draw } = opts || {};
     if (!Array.isArray(PARAMS) || typeof draw !== "function") throw new Error("mountDraft には PARAMS（配列）と draw（関数）が必要です");
     ensureStyle();
-    const { DRAFT_BOX_PARAMS, TAPE_PARAMS, tapeStore, MODES, spec, placeholder, renderScene, frame, debounce, defaults, buildParamsUi, sanitize, storage, idb, saveFile, svgToPng, toaster, esc, f, ART_KEY, PREVIEW_LS_KEY } = CB;
+    const { DRAFT_BOX_PARAMS, TAPE_PARAMS, tapeStore, MODES, spec, placeholder, renderScene, frame, debounce, defaults, buildParamsUi, sanitize, storage, idb, saveFile, svgToPng, toaster, buildModeTabs, esc, f, ART_KEY, PREVIEW_LS_KEY } = CB;
 
     // ---- 画面（固定部分） ----
     if (!document.querySelector('meta[name="viewport"]')) document.head.insertAdjacentHTML("beforeend", '<meta name="viewport" content="width=device-width, initial-scale=1" />');
@@ -57,10 +57,6 @@
         <h3>${esc(opts.title || "デザイン微調整")}</h3>
         ${opts.note ? `<p class="note">${esc(opts.note)}</p>` : ""}
         <div id="cbx-extra"></div>
-        <div class="section">
-          <h4>表示モード</h4>
-          <select id="cbx-mode"></select>
-        </div>
         <div id="cbx-fixed"></div>
         <div id="cbx-design"></div>
         <div class="section">
@@ -77,6 +73,7 @@
       </div>
       <div class="stage">
         <svg id="scene" viewBox="0 0 192 132" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"></svg>
+        <div id="cbx-mode"></div>
         <p id="cbx-msg" class="note"></p>
       </div>`);
     const $ = (id) => document.getElementById(id);
@@ -85,7 +82,7 @@
 
     // ---- 状態 ----
     const LS_KEY = opts.storageKey || `cigar-box-draft:v5:${location.pathname}`;
-    const state = { fixed: defaults(DRAFT_BOX_PARAMS), mode: "flat", values: defaults(PARAMS) };
+    const state = { fixed: defaults(DRAFT_BOX_PARAMS), mode: "one", values: defaults(PARAMS) };
     // サイドテープの設定は、仕上げページと共通の保存先に書く（箱のサイズだけ、このページに保存する）
     const persist = () => {
       storage.save(LS_KEY, { version: 5, mode: state.mode, fixed: { box: state.fixed.box }, values: state.values });
@@ -127,8 +124,7 @@
     const onChange = () => { persistSoon(); renderSoon(); };
     const syncFixed = buildParamsUi($("cbx-fixed"), DRAFT_BOX_PARAMS, state.fixed, onChange);
     const syncDesign = buildParamsUi($("cbx-design"), PARAMS, state.values, onChange);
-    $("cbx-mode").innerHTML = DRAFT_MODES.map((k) => `<option value="${k}">${MODES[k]}</option>`).join("");
-    $("cbx-mode").onchange = (e) => { state.mode = e.target.value; persist(); render(); };
+    const syncMode = buildModeTabs($("cbx-mode"), Object.fromEntries(DRAFT_MODES.map((k) => [k, MODES[k]])), (mode) => { state.mode = mode; syncMode(mode); persist(); render(); });
 
     // ---- 出力 ----
     const currentBlob = () => new Blob([`<?xml version="1.0" encoding="UTF-8"?>\n${buildSvg()}`], { type: "image/svg+xml" });
@@ -192,7 +188,7 @@
       if (DRAFT_MODES.includes(saved.mode)) state.mode = saved.mode;
     }
     syncFixed(); syncDesign();
-    $("cbx-mode").value = state.mode;
+    syncMode(state.mode);
     render();
     return { state, render, toast, buildSvg };
   }
