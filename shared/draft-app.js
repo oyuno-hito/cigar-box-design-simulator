@@ -38,7 +38,7 @@
    *   crumb         … 見出しの上に出すパンくず（HTML 文字列。省略可）
    *   extra         … 説明文の下に差し込む要素（省略可）
    *   previewUrl    … 仕上げページの URL（省略時は、このファイルの隣の ../preview/）
-   *   tape          … サイドテープの初期値 { sideTape, tapeColor, tapeX, tapeY, tapeLink }（省略可。依頼文に入っている値をそのまま書く）
+   *   tape          … サイドテープの初期値 { sideTape, tapeColor, tapeX, tapeY, tapeLink, sheetColor }（省略可。依頼文に入っている値をそのまま書く）
    *                   このブラウザにサイドテープの共通設定が保存されていれば、そちらが優先される
    *   storageKey    … 入力値の保存キー
    * 戻り値 { state, render, toast, buildSvg }

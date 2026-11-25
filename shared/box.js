@@ -16,7 +16,7 @@
   //   左右：きぞはこは用紙（178mm）が箱の面（180mm）より小さいので、左右は 2mm より小さくできない。
   //         0〜2mm の間は左右の余白が 2mm 固定で、2mm を超えた分だけ指定どおりになる。
   //         かずはこ（165mm）は用紙より小さいので、指定した余白のとおり。右側だけを切る。
-  // サイドテープの色（tapeColor）と幅は画面で変更できる（初期値は白 / 6mm）。
+  // サイドテープの色（tapeColor）と幅は画面で変更できる（初期値は白 / 6mm）。サイドシートの色（sheetColor、左右の側面）は初期値が黒。
   // デザイン（画像・SVG）は「箱の面と同寸」で作る前提。座標は mm（SVG は viewBox の 1 単位 = 1mm）。
   const FIXED = {
     sheetW: 178, sheetH: 127, boxH: 120, boxD: 60,
@@ -31,14 +31,27 @@
   };
   const MARGIN_DEFAULT = 3, MARGIN_MAX = 20;
 
+  // サイドテープ・サイドシートの色は、実際に手に入る素材の色から選ぶ（cigar-box-design-lab と同じ）。16 進値は商品ページの色名からの近似で、実物とは違う
+  //   サイドテープ … アサヒペン パワーテープ 48mm。面の枠と、上下の側面（長辺）に貼る
+  //   サイドシート … d-c-fix ベロア。左右の側面（短辺）に貼る
+  const TAPE_COLORS = [
+    ["#ffffff", "白"], ["#000000", "黒"], ["#b9bec4", "シルバー"],
+    ["#f2f23a", "蛍光イエロー"], ["#ff8a1f", "蛍光オレンジ"], ["#39e639", "蛍光グリーン"], ["#ff4fa3", "蛍光ピンク"]
+  ];
+  const SHEET_COLORS = [
+    ["#000000", "ブラック"], ["#c1272d", "レッド"], ["#6f1722", "ダークレッド"],
+    ["#1c2b52", "ネイビー"], ["#1f5b3b", "グリーン"], ["#7b7e84", "グレー"]
+  ];
+
   // 箱・サイドテープの設定項目（両ページ共通）
   const BOX_PARAMS = [
     { g: "箱", key: "box", label: "箱のサイズ", type: "select", options: Object.entries(BOXES).map(([k, b]) => [k, b.label]), def: "kizo" },
-    { g: "サイドテープ", key: "sideTape", label: "サイドテープを貼る", type: "bool", def: true },
-    { key: "tapeColor", label: "サイドテープの色", type: "color", def: "#ffffff", inlineWith: "sideTape" }, // 「貼る」と同じ行に置く
+    { g: "サイドテープ", key: "sideTape", label: "枠あり", type: "bool", def: true },
+    { key: "tapeColor", label: "サイドテープの色", type: "swatch", options: TAPE_COLORS, def: "#ffffff" },
     { key: "tapeX", label: "左右の幅", unit: "mm", min: 0, max: 30, step: 1, def: 6, linkFlag: "tapeLink", linkWith: "tapeY" },
     { key: "tapeY", label: "上下の幅", unit: "mm", min: 0, max: 30, step: 1, def: 6, linkFlag: "tapeLink", linkWith: "tapeX" },
     { key: "tapeLink", label: "縦横を連動", type: "bool", def: true },
+    { g: "サイドシート", key: "sheetColor", label: "サイドシートの色", type: "swatch", options: SHEET_COLORS, def: "#000000" },
     { g: "余白", key: "marginX", label: "左右の余白（合計）", unit: "mm", min: 0, max: MARGIN_MAX, step: 1, def: MARGIN_DEFAULT,
       linkFlag: "marginLink", linkWith: "marginY" },
     { key: "marginY", label: "上下の余白（合計）", unit: "mm", min: 0, max: MARGIN_MAX, step: 1, def: MARGIN_DEFAULT,
@@ -49,7 +62,7 @@
   // デザイン微調整ページには余白の設定を出さない（余白は仕上げページで決める。微調整中は初期値の 3mm で表示する）
   const DRAFT_BOX_PARAMS = BOX_PARAMS.filter((p) => !/^margin/.test(p.key));
   // サイドテープの設定。仕上げページと微調整ページ（同じサイト内）で共通にする。AI が作るページには、依頼文で初期値として渡す
-  const TAPE_KEYS = ["sideTape", "tapeColor", "tapeX", "tapeY", "tapeLink"];
+  const TAPE_KEYS = ["sideTape", "tapeColor", "tapeX", "tapeY", "tapeLink", "sheetColor"];
   const TAPE_PARAMS = BOX_PARAMS.filter((p) => TAPE_KEYS.includes(p.key));
 
   // プレビューの見せ方（cigar-box-design-lab の拡大表示と同じ 3 つ）と、印刷用
@@ -77,8 +90,8 @@
       boxW, marginX, marginY,
       cutRight: Math.max(0, FIXED.sheetW - stickerW),
       cutBottom: Math.max(0, FIXED.sheetH - stickerH),
-      tapeX: values.sideTape ? values.tapeX : 0, // 左右のテープの幅
-      tapeY: values.sideTape ? values.tapeY : 0  // 上下のテープの幅
+      tapeX: values.sideTape ? values.tapeX : 0, // 左右の枠の幅（枠なしは 0）
+      tapeY: values.sideTape ? values.tapeY : 0  // 上下の枠の幅（枠なしは 0）
     };
   };
 
@@ -176,18 +189,20 @@
     return `#${c(16)}${c(8)}${c(0)}`;
   };
   // 立体の箱 1 つ。(x, y) は正面の左上。turn は箱を面の中で時計回りに回した角度（0 / 90 / 180 / 270）。
-  // 側面（右の面・上の面）は、サイドテープを貼っていればテープの色、なければ箱の色
+  // 側面は、左右の側面（短辺）がサイドシートの色、上下の側面（長辺）がサイドテープの色。枠の有無にかかわらず、いつも反映する。
+  // 見える側面は右と上。横長のとき右が左右の側面・上が上下の側面で、箱を回すと入れ替わる
   function solidBox(v, x, y, turn, dx, dy) {
     const flat = turn % 180 === 0;
     const w = flat ? v.boxW : v.boxH, h = flat ? v.boxH : v.boxW;
-    const base = v.tapeX > 0 || v.tapeY > 0 ? v.tapeColor : v.boxColor;
+    const lr = v.sheetColor, tb = v.tapeColor;
+    const right = flat ? lr : tb, top = flat ? tb : lr;
     const pts = (a) => a.map(([px, py]) => `${f(px)},${f(py)}`).join(" ");
     const edge = 'stroke="#94a3b8" stroke-width="0.3" stroke-linejoin="round"';
     // 面は、中心を軸に回す（90 / 270 のときは縦長の面にちょうど収まる）
     const face = `<g transform="translate(${f(x + w / 2)} ${f(y + h / 2)}) rotate(${turn}) translate(${f(-v.boxW / 2)} ${f(-v.boxH / 2)})"><use href="#cbx-face" xlink:href="#cbx-face" /></g>`;
     return `<g>
-      <polygon points="${pts([[x + w, y], [x + w + dx, y + dy], [x + w + dx, y + h + dy], [x + w, y + h]])}" fill="${shade(base, 0.89)}" ${edge} />
-      <polygon points="${pts([[x, y], [x + dx, y + dy], [x + w + dx, y + dy], [x + w, y]])}" fill="${shade(base, 0.95)}" ${edge} />
+      <polygon points="${pts([[x + w, y], [x + w + dx, y + dy], [x + w + dx, y + h + dy], [x + w, y + h]])}" fill="${shade(right, 0.89)}" ${edge} />
+      <polygon points="${pts([[x, y], [x + dx, y + dy], [x + w + dx, y + dy], [x + w, y]])}" fill="${shade(top, 0.95)}" ${edge} />
       ${face}
     </g>`;
   }
@@ -237,12 +252,18 @@
     const L = layout(v);
     const { artEl, scene } = ensureScene(svg);
     if (artEl._art !== art) { artEl.innerHTML = art; artEl._art = art; }
+    // プレビューの枠は、どの見せ方でも（印刷用も）「一箱」と同じ大きさにする
+    const base = figure(v, "one");
+    const fw = base.w + MARGIN * 2, fh = base.h + MARGIN * 2;
     const setAttr = (name, val) => { if (svg.getAttribute(name) !== val) svg.setAttribute(name, val); };
     const setView = (x, y, w, h, inner) => {
       setAttr("width", `${f(w)}mm`);
       setAttr("height", `${f(h)}mm`);
       setAttr("viewBox", `${f(x)} ${f(y)} ${f(w)} ${f(h)}`);
-      svg.dataset.mode = mode; // 画面の高さを、見せ方ごとに変えるための目印（style.css）
+      svg.dataset.mode = mode;
+      // 印刷用は用紙の大きさのまま描き（PNG の書き出しもこの大きさ）、画面では枠の中に収めて中央に置く
+      const ratio = `${f(fw)} / ${f(fh)}`;
+      if (svg.style.aspectRatio !== ratio) svg.style.aspectRatio = ratio;
       scene.innerHTML = inner;
     };
     const bg = (x, y, w, h) => `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" fill="${STAGE_BG}" />`;
@@ -276,11 +297,9 @@
       W = Math.max(W, x + fig.w); H = Math.max(H, y + fig.h + capH);
       if (side) x += fig.w + GAP; else y += fig.h + capH + GAP;
     });
-    // プレビューの枠は、どの見せ方でも「一箱」と同じ大きさにする。ほかの見せ方は、枠に収まるように縮めて中央に置く
-    const base = figure(v, "one");
+    // ほかの見せ方は、枠に収まるように縮めて中央に置く
     const s = Math.min(1, base.w / W, base.h / H);
     const tx = (base.w - W * s) / 2, ty = (base.h - H * s) / 2;
-    const fw = base.w + MARGIN * 2, fh = base.h + MARGIN * 2;
     setView(-MARGIN, -MARGIN, fw, fh, `${buildFaceDefs(v, L)}${bg(-MARGIN, -MARGIN, fw, fh)}<g transform="translate(${f(tx)} ${f(ty)}) scale(${f(s)})">${inner}</g>`);
   }
 
@@ -333,7 +352,7 @@
         onChange(p.key, val);
       };
 
-      // 別の項目と同じ行に置く色の選択（例：サイドテープを貼る + 色）
+      // 別の項目と同じ行に置く色の選択（例：枠あり + 色）
       if (p.inlineWith) {
         const el = document.createElement("input");
         el.type = "color"; el.title = p.label; el.setAttribute("aria-label", p.label);
@@ -356,6 +375,23 @@
         const btns = [...wrap.querySelectorAll("button")];
         btns.forEach((b) => { b.onclick = () => set(b.dataset.v); });
         inputs[p.key] = (val) => btns.forEach((b) => b.classList.toggle("active", b.dataset.v === String(val)));
+      } else if (p.type === "swatch") {
+        // 決まった色から選ぶ（options: [[#rrggbb, 名前, グループ名]]）
+        const groups = [];
+        p.options.forEach(([val, name, g]) => {
+          let grp = groups.find((x) => x.g === g);
+          if (!grp) groups.push(grp = { g, items: [] });
+          grp.items.push([val, name]);
+        });
+        wrap.innerHTML = `<div class="row-label"><span>${esc(p.label)}</span><span class="swatch-name"></span></div>` + groups.map((grp) => `
+          <div class="swatch-group">${grp.g ? `<span class="swatch-cap">${esc(grp.g)}</span>` : ""}<div class="swatches">${grp.items.map(([val, name]) => `<button type="button" class="swatch" data-v="${esc(val)}" title="${esc(name)}" aria-label="${esc(name)}" style="--c:${esc(val)}"></button>`).join("")}</div></div>`).join("");
+        const btns = [...wrap.querySelectorAll("button")], nameEl = wrap.querySelector(".swatch-name");
+        btns.forEach((b) => { b.onclick = () => set(b.dataset.v); });
+        inputs[p.key] = (val) => {
+          btns.forEach((b) => { const on = b.dataset.v === String(val); b.classList.toggle("active", on); b.setAttribute("aria-pressed", String(on)); });
+          const hit = p.options.find(([o]) => o === val);
+          nameEl.textContent = hit ? hit[1] : "";
+        };
       } else if (p.type === "color") {
         wrap.innerHTML = `<label><span>${esc(p.label)}</span><input type="color" /></label>`;
         const el = wrap.querySelector("input");
@@ -395,6 +431,9 @@
       if (p.type === "select" || p.type === "choice") {
         const hit = p.options.find(([o]) => String(o) === String(val));
         if (hit) out[p.key] = p.numeric ? Number(hit[0]) : hit[0];
+      } else if (p.type === "swatch") {
+        const hit = p.options.find(([o]) => o === String(val).toLowerCase()); // 選べる色だけ（それ以外は既定値のまま）
+        if (hit) out[p.key] = hit[0];
       } else if (p.type === "color") {
         if (/^#[0-9a-fA-F]{6}$/.test(val)) out[p.key] = val.toLowerCase();
       } else if (p.type === "bool") {
@@ -639,7 +678,7 @@
   }
 
   global.CigarBox = {
-    FIXED, BOXES, BOX_PARAMS, DRAFT_BOX_PARAMS, TAPE_KEYS, TAPE_PARAMS, MODES, PREVIEW_MODES,
+    FIXED, BOXES, BOX_PARAMS, DRAFT_BOX_PARAMS, TAPE_KEYS, TAPE_PARAMS, TAPE_COLORS, SHEET_COLORS, MODES, PREVIEW_MODES,
     f, esc, spec, layout, placeholder, renderScene, frame, debounce, releaseArt, saveFile, svgToPng, isTouch,
     defaults, buildParamsUi, sanitize, storage,
     idb, ART_KEY, PREVIEW_LS_KEY, TAPE_LS_KEY, tapeStore,

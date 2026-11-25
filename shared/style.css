@@ -33,6 +33,12 @@ h4 { margin: 4px 0 0; font-size: 13px; color: #8fb4ff; border-bottom: 1px solid 
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
 }
 .param input[type="range"] { width: 100%; }
+.swatch-name { margin-left: 8px; color: #8fb4ff; }
+.swatch-group { display: flex; align-items: center; gap: 8px; }
+.swatch-cap { flex: none; width: 48px; font-size: 11px; color: #8b9ab0; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+button.swatch { width: 26px; height: 26px; padding: 0; border-radius: 50%; border: 2px solid #44536e; background: var(--c); }
+button.swatch.active { background: var(--c); border-color: #4c93ff; box-shadow: 0 0 0 2px #4c93ff66; }
 .ctl { display: inline-flex; align-items: center; gap: 10px; }
 input[type="number"], select, textarea {
   background: #141820; color: #e6edf3; border: 1px solid #44536e;
@@ -97,9 +103,9 @@ summary { cursor: pointer; padding: 4px 0; }
   }
   /* 高さを固定し、表示モードや箱で縦横比が変わっても領域の大きさを変えない（下のコントロールが動かない） */
   .stage .mode-tabs { margin-top: 6px; }
-  .stage svg { height: 24vh; height: 24svh; max-height: 210px; max-width: none; box-shadow: none; }
-  /* プレビュー（一箱・縦に並べる・横に並べる）は、同じ大きさの枠にして、見せ方を切り替えても動かさない。少し縦長なので、高くする */
-  .stage svg:not([data-mode="print"]) { height: 32vh; height: 32svh; max-height: 280px; }
+  .stage svg { max-width: none; box-shadow: none; }
+  /* どの見せ方でも（印刷用も）同じ高さの枠にして、切り替えても動かさない。少し縦長なので、高くする */
+  .stage svg { height: 32vh; height: 32svh; max-height: 280px; }
   /* メッセージは、プレビューの上端に重ねて出す（出ても領域の高さが変わらない。見せ方のボタンは隠さない） */
   .stage #msg, .stage #cbx-msg {
     position: absolute; left: 6px; right: 6px; top: 6px; margin: 0; min-height: 0;
